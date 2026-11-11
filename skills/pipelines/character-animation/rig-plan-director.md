@@ -27,12 +27,23 @@ Character differences are data. The renderer should not need one-off code for a
 mouse versus a bird. A bird may have `wing_left`; a mouse may have `tail`, but
 both feed the same pose interpolation and timeline compiler.
 
-That is the target design, not today's renderer: `character_rig_renderer`
-currently reads only the character ids from `rig_plan`, ignores `pose_library`
-and the rig parts, and draws the same built-in placeholder figure for every
-character (see compose-director). The rig plan and pose library are checked by
-`character_animation_reviewer`; the acted render has to come from the approved
-Remotion/HyperFrames package built from them.
+`character_rig_renderer` works this way. It draws every part in `rig_plan` by
+its `kind` at its joint pivot, nested under `parent` and stacked by `layers`,
+and it applies each pose's `parts` to the parts of that name. So what you
+write here is what moves:
+
+- A pose's `parts` set `x`, `y`, `rotation`, `scale`, `scaleX`, `scaleY` or
+  `opacity` on a part id; a mouth part takes a shape name (`closed`,
+  `small_o`, `wide`, `smile`, `frown`). Rotations are clamped to the joint's
+  `rotation` range.
+- A pose with empty `parts` is the rest pose. `pose_library_builder` drafts
+  every required action that way, so write the parts for each one (for
+  example `flap`: `wing_left` and `wing_right` rotation) or the action shows
+  no motion.
+- `hold_frames` is how long the pose holds inside its action, and the step
+  length when the pose is part of an action cycle.
+- The art is built-in line art. A part kind it has no drawing for becomes a
+  small marker, listed as `generic_parts` in the renderer's result.
 
 ## Quality Checks
 

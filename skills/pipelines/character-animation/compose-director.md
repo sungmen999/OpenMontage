@@ -43,13 +43,30 @@ proposal unless a `render_runtime_selection` decision explicitly changed it.
      use the edit stage's own `edit_decisions` and the approved Remotion package.
      When it locked `hyperframes`, copy the proposal's `delivery_promise` into
      `metadata` before rendering.
-   - It draws one built-in placeholder figure per character id (body, head,
-     eyes, mouth, two arms; only the colours differ) with a fixed
-     bounce/head-turn/arm/blink loop. It reads only the character ids from
-     `rig_plan` and the duration from `action_timeline`; it does not read
-     `pose_library`, rig parts such as `wing_left` or `tail`, or the timed
-     actions. Treat it as a motion/visibility smoke test, not as the acted
-     character animation, and say so if it is all that rendered.
+   - It draws each character from its `rig_plan` parts and plays the
+     `pose_library` poses at the `action_timeline` times. The art is built-in
+     line art chosen by part `kind` (torso, head, eye, pupil, mouth, limb,
+     tail, wing, brow, ear; any other kind is a small marker), placed at the
+     joint pivots, nested under `parent`, stacked by `layers`. It is the rig
+     acting, not finished character artwork: `asset_path` artwork, the scene
+     `background`, `camera`, `effects`, and an action's `emotion`, `target`
+     and `notes` are not drawn.
+   - Read `acting` in the result before you trust the render. It lists, per
+     character, the parts drawn and the poses played, and what could not be
+     played: `missing_poses` (an action whose pose, cycle and action name are
+     all absent from the library), `unknown_parts` (a pose names a part the
+     rig lacks), `clamped` (a rotation outside the joint range) and
+     `generic_parts` (a kind with no drawing). Fix the artifacts and re-run
+     until the lists that matter are empty, or report them.
+   - The timing rules: an action plays its `pose` from `at_seconds`; with no
+     `pose` it plays the action cycle, else the pose, named after the action.
+     The move lasts the action's duration minus the pose's `hold_frames` (at
+     least a quarter of it) and never runs into the character's next action.
+     Parts a pose does not name return to rest. A character is on stage only
+     in the scenes where it has actions, so give a character that should
+     stand and watch an `idle` action in that scene (one with no actions in
+     any scene stays on stage throughout). A pose with empty `parts` is the
+     rest pose: it moves nothing.
 3. Run `character_animation_reviewer` against rig, poses, timeline, and preview.
 4. Render final video through `video_compose` using the renderer handoff or the
    approved Remotion/HyperFrames package, with the `profile` from step 1. The deliverable path is

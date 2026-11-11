@@ -26,6 +26,16 @@ from tools.base_tool import (
     ToolStability,
     ToolTier,
 )
+from tools.character.rig_scene import (
+    BASE_RIG_PARTS,
+    PLAY_RIG_JS,
+    compile_acting,
+    default_rig,
+    draw_character,
+    mouth_shape_names,
+    script_json,
+)
+from tools.character.rig_scene import slug as _slug
 from tools.gsap_runtime import stage_gsap
 from tools.video.hyperframes_compose import HyperFramesCompose
 
@@ -37,11 +47,6 @@ def _write_json(path: str | None, data: dict[str, Any]) -> list[str]:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return [str(out)]
-
-
-def _slug(value: str) -> str:
-    chars = [c.lower() if c.isalnum() else "-" for c in value.strip()]
-    return "-".join("".join(chars).split("-")).strip("-") or "character"
 
 
 def _character_color(index: int) -> tuple[str, str]:
@@ -216,19 +221,7 @@ class SvgRigBuilder(BaseTool):
         for character in design.get("characters", []):
             cid = character["id"]
             actions = character.get("required_actions", [])
-            base_parts = [
-                ("body", "torso", 20, None, [320, 380]),
-                ("head", "head", 40, "body", [320, 220]),
-                ("eye_left", "eye", 50, "head", [288, 210]),
-                ("eye_right", "eye", 50, "head", [352, 210]),
-                ("pupil_left", "pupil", 51, "eye_left", [288, 210]),
-                ("pupil_right", "pupil", 51, "eye_right", [352, 210]),
-                ("mouth", "mouth", 52, "head", [320, 260]),
-                ("arm_left", "limb", 35, "body", [260, 330]),
-                ("arm_right", "limb", 35, "body", [380, 330]),
-                ("leg_left", "limb", 10, "body", [285, 470]),
-                ("leg_right", "limb", 10, "body", [355, 470]),
-            ]
+            base_parts = list(BASE_RIG_PARTS)
             if "tail" in character.get("body_type", "").lower() or "mouse" in cid:
                 base_parts.append(("tail", "tail", 5, "body", [245, 425]))
             if any("wing" in a for a in actions) or "bird" in cid:
@@ -468,7 +461,7 @@ class ActionTimelineCompiler(BaseTool):
 
 class CharacterRigRenderer(BaseTool):
     name = "character_rig_renderer"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.CORE
     capability = "character_animation"
     provider = "openmontage"
@@ -485,20 +478,55 @@ class CharacterRigRenderer(BaseTool):
         "remotion-best-practices",
         "hyperframes",
     ]
-    capabilities = ["write_browser_preview", "prepare_character_render_package"]
+    capabilities = [
+        "write_browser_preview",
+        "prepare_character_render_package",
+        "draw_rig_parts",
+        "play_timed_poses",
+    ]
     input_schema = {
         "type": "object",
         "required": ["action_timeline"],
         "properties": {
-            "action_timeline": {"type": "object"},
-            "rig_plan": {"type": "object"},
+            "action_timeline": {
+                "type": "object",
+                "description": (
+                    "Timed actions per scene and character. Each action plays its "
+                    "`pose` from at_seconds; with no pose it plays the action cycle, "
+                    "else the pose, named after the action. A character is on stage "
+                    "in the scenes where it has actions. `emotion`, `target`, `notes`, "
+                    "`camera`, `background` and `effects` are not drawn."
+                ),
+            },
+            "rig_plan": {
+                "type": "object",
+                "description": (
+                    "Each character is drawn from its parts: built-in line art by "
+                    "part kind (torso, head, eye, pupil, mouth, limb, tail, wing, "
+                    "brow, ear; any other kind is a small marker), placed at the "
+                    "joint pivot, nested under `parent` and stacked by `layers`. "
+                    "Joint rotation ranges clamp pose rotations. Without a rig plan "
+                    "every character id in the timeline gets the base rig."
+                ),
+            },
             "pose_library": {
                 "type": "object",
                 "description": (
-                    "Accepted so the pipeline can pass the same artifacts to every "
-                    "character tool, but not read here: the preview draws a built-in "
-                    "placeholder rig driven by action_timeline. Poses are checked by "
-                    "character_animation_reviewer."
+                    "Poses, mouth shapes and action cycles per character. A pose's "
+                    "`parts` set x, y, rotation, scale, scaleX, scaleY or opacity on "
+                    "rig parts, and a mouth part takes a shape name. Parts a pose "
+                    "does not name return to rest. `hold_frames` sets how long a "
+                    "pose holds inside its action and the step of an action cycle; "
+                    "`transition` is the ease when the action gives none. Without a "
+                    "pose library the figures only enter and breathe."
+                ),
+            },
+            "ambient_motion": {
+                "type": "boolean",
+                "default": True,
+                "description": (
+                    "A slow, finite breathing bob on each figure between poses. "
+                    "Set false for completely still holds."
                 ),
             },
             "output_path": {"type": "string"},
@@ -529,6 +557,14 @@ class CharacterRigRenderer(BaseTool):
             "video_path": {"type": "string"},
             "asset_manifest": {"type": "object"},
             "edit_decisions": {"type": "object"},
+            "acting": {
+                "type": "object",
+                "description": (
+                    "What was drawn and played: per character the part count, "
+                    "action count and poses played, plus missing_poses, "
+                    "unknown_parts, clamped rotations and generic_parts."
+                ),
+            },
         },
     }
     side_effects = [
@@ -546,48 +582,55 @@ class CharacterRigRenderer(BaseTool):
         profile = inputs.get("profile")
         # Same resolution as the scaffold that mounts the composition.
         canvas_width, canvas_height, _ = HyperFramesCompose._resolve_dimensions(profile, 30)
-        timeline_json = json.dumps(inputs["action_timeline"])
-        rig_characters = (inputs.get("rig_plan") or {}).get("characters", [])
+        action_timeline = inputs["action_timeline"]
+        timeline_json = script_json(action_timeline)
+        rig_characters = [
+            rig for rig in (inputs.get("rig_plan") or {}).get("characters", []) if isinstance(rig, dict)
+        ]
         if not rig_characters:
             seen_ids = {
                 action.get("character_id")
-                for scene in inputs["action_timeline"].get("scenes", [])
+                for scene in action_timeline.get("scenes", [])
                 for action in scene.get("actions", [])
                 if action.get("character_id")
             }
-            rig_characters = [{"character_id": cid} for cid in sorted(seen_ids)] or [
-                {"character_id": "main_character"}
-            ]
+            rig_characters = [default_rig(cid) for cid in sorted(seen_ids)] or [default_rig("main_character")]
+        pose_library = inputs.get("pose_library") or {}
+        pose_entries = {
+            _slug(entry.get("character_id", "")): entry
+            for entry in pose_library.get("characters", [])
+            if isinstance(entry, dict)
+        }
         count = len(rig_characters)
-        # Figures are drawn around x=320 (arms reach 180..475) standing on
-        # y=560. Spread them evenly about the viewBox centre and scale them
-        # about their feet, so every figure stays inside 0..640 and on the
-        # ground. The placement sits on an outer group: GSAP animates the
-        # inner .character group and would overwrite a transform on it.
+        # A figure is drawn about x=320 (at rest it spans about 175..455)
+        # standing on y=560. Spread the figures evenly about the viewBox
+        # centre and scale them about their feet, so every figure stays inside
+        # 0..640 and on the ground. The placement sits on an outer group: GSAP
+        # animates the inner .character group and would overwrite a transform
+        # on it.
         spacing = 620 / count
         scale = 1.0 if count == 1 else round(min(0.82, 1.6 / count), 3)
         character_svgs = []
+        drawn: dict[str, dict[str, Any]] = {}
         for index, character in enumerate(rig_characters):
             cid = _slug(character.get("character_id", f"character-{index + 1}"))
             x = 320 + (index - (count - 1) / 2) * spacing
-            body_fill, head_fill = _character_color(index)
-            character_svgs.append(
-                f"""
-      <g transform=\"translate({x - 320 * scale:.1f} {560 * (1 - scale):.1f}) scale({scale:.3f})\">
-      <g class=\"character\" id=\"character_{cid}\" data-character=\"{cid}\">
-        <ellipse class=\"shadow\" cx=\"320\" cy=\"560\" rx=\"120\" ry=\"22\" fill=\"rgba(0,0,0,.18)\" />
-        <ellipse class=\"body outline\" cx=\"320\" cy=\"400\" rx=\"80\" ry=\"120\" fill=\"{body_fill}\" />
-        <circle class=\"head outline\" cx=\"320\" cy=\"230\" r=\"90\" fill=\"{head_fill}\" />
-        <ellipse class=\"eye eye-left outline\" cx=\"285\" cy=\"215\" rx=\"18\" ry=\"26\" fill=\"white\" />
-        <ellipse class=\"eye eye-right outline\" cx=\"355\" cy=\"215\" rx=\"18\" ry=\"26\" fill=\"white\" />
-        <circle class=\"pupil pupil-left\" cx=\"289\" cy=\"218\" r=\"8\" fill=\"#202632\" />
-        <circle class=\"pupil pupil-right\" cx=\"359\" cy=\"218\" r=\"8\" fill=\"#202632\" />
-        <path class=\"mouth outline\" d=\"M285 275 Q320 305 355 275\" fill=\"none\" />
-        <path class=\"arm arm-left outline\" d=\"M255 360 C210 380 190 420 180 455\" fill=\"none\" />
-        <path class=\"arm arm-right outline\" d=\"M385 360 C440 330 465 290 475 240\" fill=\"none\" />
-      </g>
-      </g>"""
+            svg, info = draw_character(
+                {**character, "character_id": cid},
+                fills=_character_color(index),
+                placement=f"translate({x - 320 * scale:.1f} {560 * (1 - scale):.1f}) scale({scale:.3f})",
+                mouths=mouth_shape_names(pose_entries.get(cid)),
             )
+            character_svgs.append(svg)
+            drawn[cid] = info
+        acting, acting_report = compile_acting(
+            rig_characters,
+            pose_library,
+            action_timeline,
+            ambient_motion=bool(inputs.get("ambient_motion", True)),
+            drawn=drawn,
+        )
+        acting_json = script_json(acting)
         html = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -612,37 +655,20 @@ class CharacterRigRenderer(BaseTool):
   <div id=\"note\">Local character preview. Characters: <span id=\"characters\"></span> · Scenes: <span id=\"count\"></span></div>
   <script>
     window.__ACTION_TIMELINE__ = {timeline_json};
+    const acting = {acting_json};
+    {PLAY_RIG_JS}
     document.querySelector('#count').textContent = window.__ACTION_TIMELINE__.scenes.length;
-    const characters = gsap.utils.toArray('.character');
-    document.querySelector('#characters').textContent = characters.map((node) => node.dataset.character).join(', ');
-    characters.forEach((node, index) => {{
-      const q = gsap.utils.selector(node);
-      gsap.set(q('.head'), {{ svgOrigin: '320 320' }});
-      gsap.set(q('.arm-right'), {{ svgOrigin: '385 360' }});
-      gsap.set(q('.arm-left'), {{ svgOrigin: '255 360' }});
-      gsap.timeline({{ repeat: -1, defaults: {{ ease: 'power2.inOut' }}, delay: index * 0.12 }})
-        .to(node, {{ y: -16, duration: 0.45 }})
-        .to(node, {{ y: 0, duration: 0.45 }});
-      gsap.timeline({{ repeat: -1, repeatDelay: 0.5, delay: index * 0.18 }})
-        .to(q('.head'), {{ rotation: index % 2 ? 8 : -8, duration: 0.35 }})
-        .to(q('.pupil'), {{ x: index % 2 ? -8 : 8, y: -3, duration: 0.2 }}, '<')
-        .to(q('.arm-right'), {{ rotation: index % 2 ? -22 : 28, duration: 0.35 }}, '<')
-        .to(q('.eye'), {{ scaleY: 0.08, transformOrigin: 'center', duration: 0.08 }})
-        .to(q('.eye'), {{ scaleY: 1, duration: 0.1 }})
-        .to(q('.head'), {{ rotation: index % 2 ? -6 : 6, duration: 0.35 }})
-        .to(q('.pupil'), {{ x: index % 2 ? 6 : -6, y: 3, duration: 0.2 }}, '<')
-        .to(q('.arm-right'), {{ rotation: index % 2 ? 8 : -8, duration: 0.35 }}, '<');
-    }});
-        </script>
+    document.querySelector('#characters').textContent = Object.keys(acting.characters).join(', ');
+    // The preview replays the same acting the HyperFrames composition holds.
+    const tl = playRig(gsap, document.querySelector('#stage'), acting, {{ repeat: -1, repeatDelay: 0.8 }});
+    tl.to({{}}, {{ duration: 0.001 }}, acting.duration);
+  </script>
 </body>
 </html>
 """
         output_path.write_text(html, encoding="utf-8")
         total_duration = max(
-            [
-                float(scene.get("end_seconds", 0) or 0)
-                for scene in inputs["action_timeline"].get("scenes", [])
-            ]
+            [float(scene.get("end_seconds", 0) or 0) for scene in action_timeline.get("scenes", [])]
             or [float(inputs.get("duration_seconds", 3))]
         )
         workspace_path = Path(
@@ -672,11 +698,9 @@ class CharacterRigRenderer(BaseTool):
             "- Background: `#9bd7ff` sky and `#75c878` ground\n"
             "- Foreground: `#202632` ink outlines\n"
             "- Accent: saturated cartoon body colors\n"
-            "- Motion: GSAP pose holds, squash/bounce, gaze, blink, and arm arcs\n",
+            "- Motion: pose-library poses on rig parts at the action timeline's times, with holds\n",
             encoding="utf-8",
         )
-        finite_bounce_repeats = max(0, int(total_duration / 0.9) - 1)
-        finite_acting_repeats = max(0, int(total_duration / 2.1) - 1)
         composition_html = f"""<template id=\"character-scene-template\">
   <div data-composition-id=\"character-scene\" data-start=\"0\" data-duration=\"{total_duration:.3f}\" data-width=\"{canvas_width}\" data-height=\"{canvas_height}\">
     <style>
@@ -690,21 +714,11 @@ class CharacterRigRenderer(BaseTool):
     <script>
       // GSAP comes from the host index.html; the runtime clones only this template.
       window.__timelines = window.__timelines || {{}};
-      const tl = gsap.timeline({{ paused: true }});
-      const characters = gsap.utils.toArray('[data-composition-id=\"character-scene\"] .character');
-      characters.forEach((node, index) => {{
-        const q = gsap.utils.selector(node);
-        tl.set(q('.head'), {{ svgOrigin: '320 320' }}, 0);
-        tl.set(q('.arm-right'), {{ svgOrigin: '385 360' }}, 0);
-        tl.set(q('.arm-left'), {{ svgOrigin: '255 360' }}, 0);
-        tl.from(node, {{ y: 26, scale: 0.94, opacity: 0, duration: 0.45, ease: 'back.out(1.8)' }}, 0.15 + index * 0.12);
-        tl.to(node, {{ y: -16, duration: 0.45, repeat: {finite_bounce_repeats}, yoyo: true, ease: 'power2.inOut' }}, 0.7 + index * 0.08);
-        tl.to(q('.head'), {{ rotation: index % 2 ? 8 : -8, duration: 0.35, repeat: {finite_acting_repeats}, yoyo: true, ease: 'sine.inOut' }}, 0.55 + index * 0.16);
-        tl.to(q('.pupil'), {{ x: index % 2 ? -8 : 8, y: -3, duration: 0.2, repeat: {finite_acting_repeats}, yoyo: true, ease: 'power2.inOut' }}, 0.6 + index * 0.16);
-        tl.to(q('.arm-right'), {{ rotation: index % 2 ? -22 : 28, duration: 0.35, repeat: {finite_acting_repeats}, yoyo: true, ease: 'back.inOut(1.4)' }}, 0.65 + index * 0.16);
-        tl.to(q('.eye'), {{ scaleY: 0.08, transformOrigin: 'center', duration: 0.08, repeat: {finite_acting_repeats}, repeatDelay: 1.4, yoyo: true, ease: 'power1.inOut' }}, 1.1 + index * 0.12);
-      }});
-      window.__timelines['character-scene'] = tl;
+      const acting = {acting_json};
+      {PLAY_RIG_JS}
+      // One paused timeline, every repeat finite: the renderer seeks it frame by frame.
+      window.__timelines['character-scene'] = playRig(
+        gsap, document.querySelector('[data-composition-id=\"character-scene\"]'), acting, {{ paused: true }});
     </script>
   </div>
 </template>
@@ -756,6 +770,7 @@ class CharacterRigRenderer(BaseTool):
             "composition_path": str(composition_path),
             "asset_manifest": asset_manifest,
             "edit_decisions": edit_decisions,
+            "acting": acting_report,
         }
         artifacts = [str(output_path), str(workspace_path / "hyperframes.json"), str(composition_path)]
         render_video = bool(inputs.get("render_video") or inputs.get("video_output_path"))
