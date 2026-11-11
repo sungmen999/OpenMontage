@@ -142,9 +142,9 @@ LTX-2 generates raw clips. Combine with the rest of the toolkit:
 ## Technical Details
 
 - **Model:** LTX-2.3 22B DiT (Lightricks), bf16
-- **GPU:** A100-80GB on Modal (~$4.68/hr)
+- **GPU:** A100-80GB on Modal ($0.000694/sec, about $2.50/hr; modal.com/pricing, read 2026-11-11)
 - **Inference:** ~2.5 min per clip (768x512, 121 frames, 30 steps)
-- **Cost:** ~$0.20-0.25 per 5s clip
+- **Cost:** ~$0.10 of GPU time for that clip; more for larger or longer clips, plus CPU, memory and cold starts
 - **Cold start:** ~60-90s (loading ~55GB weights)
 - **Output:** H.264 MP4 with synchronized ambient audio (24fps)
 - **Max duration:** ~8s (193 frames) per clip

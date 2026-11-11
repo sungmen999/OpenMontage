@@ -665,17 +665,12 @@ def generate_heygen_video(inputs: dict[str, Any]) -> ToolResult:
     )
 
 
-def generate_ltx_modal_video(inputs: dict[str, Any]) -> ToolResult:
-    import base64
+def resolve_ltx_modal_generation(inputs: dict[str, Any]) -> dict[str, int]:
+    """Size, frame count and steps the Modal LTX payload carries for ``inputs``.
 
-    import requests
-
-    endpoint_url = os.environ.get("MODAL_LTX2_ENDPOINT_URL")
-    if not endpoint_url:
-        return ToolResult(success=False, error="MODAL_LTX2_ENDPOINT_URL not set.")
-
-    prompt = inputs["prompt"]
-    operation = inputs.get("operation", "text_to_video")
+    The request builder and the tool's cost and runtime estimates both read
+    this, so an estimate prices the clip that is submitted.
+    """
     aspect = inputs.get("aspect_ratio", "16:9")
     width = inputs.get("width")
     height = inputs.get("height")
@@ -691,13 +686,36 @@ def generate_ltx_modal_video(inputs: dict[str, Any]) -> ToolResult:
     if (num_frames - 1) % 8 != 0:
         num_frames = ((num_frames - 1) // 8) * 8 + 1
 
+    return {
+        "width": width,
+        "height": height,
+        "num_frames": num_frames,
+        "steps": inputs.get("num_inference_steps", 30),
+    }
+
+
+def generate_ltx_modal_video(inputs: dict[str, Any]) -> ToolResult:
+    import base64
+
+    import requests
+
+    endpoint_url = os.environ.get("MODAL_LTX2_ENDPOINT_URL")
+    if not endpoint_url:
+        return ToolResult(success=False, error="MODAL_LTX2_ENDPOINT_URL not set.")
+
+    prompt = inputs["prompt"]
+    operation = inputs.get("operation", "text_to_video")
+    generation = resolve_ltx_modal_generation(inputs)
+    width, height = generation["width"], generation["height"]
+    num_frames = generation["num_frames"]
+
     payload: dict[str, Any] = {
         "prompt": prompt,
         "width": width,
         "height": height,
         "num_frames": num_frames,
         "fps": 24,
-        "steps": inputs.get("num_inference_steps", 30),
+        "steps": generation["steps"],
         "negative_prompt": "worst quality, low quality, blurry, distorted, watermark, text, logo",
     }
     if inputs.get("seed") is not None:

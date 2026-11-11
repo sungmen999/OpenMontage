@@ -17,7 +17,19 @@ from tools.base_tool import (
     ToolStatus,
     ToolTier,
 )
-from tools.video._shared import generate_ltx_modal_video
+from tools.video._shared import generate_ltx_modal_video, resolve_ltx_modal_generation
+
+# The endpoint is the user's own Modal app, so the spend is GPU seconds.
+# Rate for the GPU the documented app runs on, an A100-80GB
+# (.agents/skills/ltx2/SKILL.md). Source: https://modal.com/pricing, read on
+# 2026-11-11: "Nvidia A100, 80 GB $0.000694 / sec".
+MODAL_GPU = "A100-80GB"
+MODAL_GPU_USD_PER_SECOND = 0.000694
+
+# Benchmark from the same skill: about 2.5 minutes for a 768x512 clip of 121
+# frames at 30 steps on a warm container.
+_REFERENCE_SECONDS = 150.0
+_REFERENCE_WORK = 768 * 512 * 121 * 30
 
 
 class LTXVideoModal(BaseTool):
@@ -87,10 +99,26 @@ class LTXVideoModal(BaseTool):
         return ToolStatus.AVAILABLE if os.environ.get("MODAL_LTX2_ENDPOINT_URL") else ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, object]) -> float:
-        return 0.25
+        """GPU rate times the seconds the submitted clip is expected to take.
+
+        Assumptions: the app runs on one A100-80GB at Modal's list rate, the
+        container is warm, and the time grows in proportion to
+        width x height x frames x steps from the benchmark clip. Modal also
+        bills CPU and memory, a few percent of the GPU charge, and a cold
+        start loads about 55 GB of weights first; neither is included. An
+        app deployed on another GPU costs that GPU's rate instead.
+        """
+        return round(self.estimate_runtime(inputs) * MODAL_GPU_USD_PER_SECOND, 4)
 
     def estimate_runtime(self, inputs: dict[str, object]) -> float:
-        return 180.0
+        generation = resolve_ltx_modal_generation(inputs)
+        work = (
+            generation["width"]
+            * generation["height"]
+            * generation["num_frames"]
+            * generation["steps"]
+        )
+        return round(_REFERENCE_SECONDS * work / _REFERENCE_WORK, 1)
 
     def execute(self, inputs: dict[str, object]) -> ToolResult:
         if self.get_status() != ToolStatus.AVAILABLE:

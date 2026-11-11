@@ -1528,7 +1528,7 @@ First run downloads the model (~4GB). Subsequent runs use the cached model.
 2. Deploy the LTX-2 endpoint (see Modal docs)
 3. Set the endpoint URL in `.env`: `MODAL_LTX2_ENDPOINT_URL=https://your-modal-endpoint`
 
-**Modal pricing:** ~$0.99/hour for A100 GPU time. Cost per video depends on generation time.
+**Modal pricing:** billed by the GPU second. The documented app runs on an A100-80GB, which [Modal lists](https://modal.com/pricing) at $0.000694/sec, about $2.50/hour (read 2026-11-11). `ltx_video_modal` estimates a clip as that rate times its expected seconds: about $0.10 for the 768x512, 121-frame, 30-step benchmark clip (~2.5 min), and about $0.16 for the default 1024x576 clip. CPU, memory and cold starts are extra.
 
 ---
 
