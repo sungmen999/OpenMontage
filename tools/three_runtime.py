@@ -51,9 +51,13 @@ def _module_closure(root: Path, entries: tuple[str, ...]) -> list[str]:
     return sorted(seen)
 
 
-def stage_three(workspace: Path) -> tuple[dict[str, str], list[str]]:
+def stage_three(
+    workspace: Path, addons: tuple[str, ...] = ADDON_ENTRIES
+) -> tuple[dict[str, str], list[str]]:
     """Copy the three.js modules into ``workspace``; return (imports, files).
 
+    ``addons`` are the addon modules to copy besides three itself, relative
+    to the package root; the default is what the Three.js world imports.
     ``imports`` is the import map's "imports" object. ``files`` lists the
     copied paths and is empty when three is not installed locally, in which
     case the map points at the pinned CDN and the render needs network.
@@ -70,7 +74,7 @@ def stage_three(workspace: Path) -> tuple[dict[str, str], list[str]]:
 
     vendor = Path(workspace) / VENDOR_DIR
     files: list[str] = []
-    for rel in _module_closure(LOCAL_THREE_ROOT, (THREE_ENTRY, *ADDON_ENTRIES)):
+    for rel in _module_closure(LOCAL_THREE_ROOT, (THREE_ENTRY, *addons)):
         dest = vendor / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(LOCAL_THREE_ROOT / rel, dest)

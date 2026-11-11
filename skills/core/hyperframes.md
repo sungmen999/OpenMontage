@@ -466,6 +466,14 @@ the `deterministicFonts.ts` mapping table. Safe bets: `Outfit`,
   render works offline. The CDN tags in the `.agents/skills/hyperframes-*` examples need
   network at render time. Sub-compositions load no GSAP: the runtime clones only their
   `<template>` into a host that already has it.
+  `hyperframes_compose` enforces this on authored workspaces. `check` and
+  `render_existing` copy the local GSAP files (plugins included) and the pinned
+  three.js modules the page asks for into the workspace, then fail if a page still
+  loads one of them from a CDN; the error lists each URL with the local path to write
+  instead (`gsap.min.js`, `./vendor/three/build/three.module.js`,
+  `./vendor/three/examples/jsm/`). The tool never rewrites your HTML. A library it has
+  no local copy of (another three.js release, Lottie, anime.js) is not blocked;
+  `allow_remote_runtime: true` lets a CDN copy through when you mean it.
 - ❌ Using `repeat: -1` in GSAP inside HyperFrames. Infinite tweens break the
   deterministic seek-and-capture render. Always bounded repeats.
 - ❌ Animating from `async` context, `setTimeout`, or Promises during

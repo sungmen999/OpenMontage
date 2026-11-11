@@ -44,3 +44,14 @@ def stage_gsap(target_dir: Path) -> str:
         return GSAP_CDN_URL
     shutil.copyfile(LOCAL_GSAP_PATH, Path(target_dir) / GSAP_FILENAME)
     return GSAP_FILENAME
+
+
+if __name__ == "__main__":
+    # `python -m tools.gsap_runtime <folder>`: put the pinned build beside a
+    # hand-written page (for example ink-theater/examples/mocap-figure) and
+    # print the script src to use.
+    import sys
+
+    if len(sys.argv) != 2 or not Path(sys.argv[1]).is_dir():
+        sys.exit("usage: python -m tools.gsap_runtime <existing folder>")
+    print(stage_gsap(Path(sys.argv[1])))

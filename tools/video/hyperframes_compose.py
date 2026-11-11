@@ -40,6 +40,7 @@ from tools.base_tool import (
     ToolTier,
 )
 from tools.gsap_runtime import GSAP_CDN_URL, stage_gsap
+from tools.runtime_scripts import blocking_message, localize_runtime
 
 
 log = logging.getLogger("hyperframes_compose")
@@ -217,6 +218,17 @@ class HyperFramesCompose(BaseTool):
                 "type": "boolean",
                 "default": False,
                 "description": "Save representative quality-check snapshots.",
+            },
+            "allow_remote_runtime": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "check and render_existing copy the pinned local GSAP / three.js "
+                    "builds a hand-authored workspace asks for into it, and fail when "
+                    "a page still loads one of them from a CDN (the error lists each "
+                    "URL and the local path to use). Set true to render with the CDN "
+                    "copies, which needs network."
+                ),
             },
         },
     }
@@ -737,6 +749,13 @@ class HyperFramesCompose(BaseTool):
         workspace = self._require_workspace(inputs)
         if not (workspace / "index.html").exists():
             return ToolResult(success=False, error=f"No index.html in {workspace}.")
+        # Copy the pinned GSAP / three.js builds the page asks for into the
+        # workspace, and stop when it still loads one of them from a CDN:
+        # the fix is a one-line change by the author, never a rewrite here.
+        runtime_scripts = localize_runtime(workspace)
+        blocked = blocking_message(runtime_scripts)
+        if blocked and not inputs.get("allow_remote_runtime", False):
+            return ToolResult(success=False, error=blocked, data={"runtime_scripts": runtime_scripts})
         args = ["check", "--json"]
         if inputs.get("skip_contrast", False):
             args.append("--no-contrast")
@@ -745,7 +764,7 @@ class HyperFramesCompose(BaseTool):
         if inputs.get("snapshots", False):
             args.append("--snapshots")
         proc = self._run_hf(args, cwd=workspace, timeout=300, check=False)
-        data: dict[str, Any] = {"exit_code": proc.returncode}
+        data: dict[str, Any] = {"exit_code": proc.returncode, "runtime_scripts": runtime_scripts}
         payload = self._parse_json_output(proc.stdout)
         if payload is not None:
             data["report"] = payload
@@ -956,6 +975,7 @@ class HyperFramesCompose(BaseTool):
                 "skip_contrast": inputs.get("skip_contrast", False),
                 "strict_check": inputs.get("strict_check", False),
                 "snapshots": inputs.get("snapshots", False),
+                "allow_remote_runtime": inputs.get("allow_remote_runtime", False),
             }
         )
         steps["check"] = quality_check.data

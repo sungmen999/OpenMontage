@@ -216,7 +216,9 @@ registry (`src/components`, `src/Explainer`, etc.), and warns if `art_direction`
   `window.__timelines`, one `.clip` per cut). **Scaffold once:** `scaffold_workspace` and
   `operation="render"` both overwrite `index.html`.
 - Author `index.html` by hand. Load GSAP with `<script src="gsap.min.js"></script>`, not the
-  CDN tag the `.agents/skills/hyperframes-*` examples show, so the render needs no network;
+  CDN tag the `.agents/skills/hyperframes-*` examples show, so the render needs no network
+  (`check` and `render_existing` refuse a CDN copy of GSAP or of the pinned three.js and name
+  the local path to use; see `skills/core/hyperframes.md` → Anti-patterns);
   sub-compositions use the host's GSAP and load none themselves. Every clip needs `class="clip"` + the three `data-*` timing
   attrs + a stable `id`. Mount sub-compositions via `data-composition-src` once the timeline
   on one file grows past 4 clips (the lint catches density).

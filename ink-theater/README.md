@@ -44,7 +44,8 @@ A working Patrick Hand TTF ships at **`ink-theater/assets/patrickhand.ttf`** (SI
 
 ## Usage in a HyperFrames project
 
-1. Copy `ink-theater.js` into the project root; `<script src="ink-theater.js">` after gsap.
+1. Copy `ink-theater.js` into the project root; `<script src="ink-theater.js">` after gsap
+   (`<script src="gsap.min.js">`, the local build in the workspace, not a CDN tag).
 2. Build the scene programmatically into a mount `<g>`, keep node refs.
 3. Apply `filter="url(#boil)"` to ink groups; call `InkTheater.boil(...)` once.
 4. Captions = HTML overlay divs (see gotcha).
@@ -83,4 +84,4 @@ Comic balloon that grows from the mouth, with HTML overlay text (so the webfont 
 
 ## Demos
 
-- `examples/mocap-figure/` — the pencil figure draws itself, then walks / runs / dances / kicks / sits / waves via **real CMU mocap**. Self-contained and lintable (`npx hyperframes lint ink-theater/examples/mocap-figure`); see `examples/README.md`.
+- `examples/mocap-figure/` — the pencil figure draws itself, then walks / runs / dances / kicks / sits / waves via **real CMU mocap**. Lintable once GSAP is copied beside it (`python -m tools.gsap_runtime ink-theater/examples/mocap-figure`, then `npx hyperframes lint ink-theater/examples/mocap-figure`); see `examples/README.md`.

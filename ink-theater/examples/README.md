@@ -7,11 +7,17 @@ stick figure**, which then walks / runs / dances / kicks / sits / waves using
 **real CMU motion capture** (zero hand-tuning) via `InkPuppet.choreograph(...)`.
 
 It bundles everything it needs (`ink-theater.js`, `ink-puppet.js`, `clips.js`,
-`assets/patrickhand.ttf`), so lint and render it directly:
+`assets/patrickhand.ttf`) except GSAP, which it loads from a local
+`gsap.min.js` so the render needs no network. Copy the pinned build that
+`make setup` installed beside the page, then lint and render it directly:
 
 ```bash
+python -m tools.gsap_runtime ink-theater/examples/mocap-figure
 npx hyperframes lint ink-theater/examples/mocap-figure
 ```
+
+The copied `gsap.min.js` is git-ignored. `hyperframes_compose`
+(`check`, `render_existing`) copies it for you when it is missing.
 
 > Point the linter at a **composition directory** (one that contains an
 > `index.html`), not at `examples/` itself — the linter looks for `index.html`

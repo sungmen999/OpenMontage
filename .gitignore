@@ -122,3 +122,7 @@ gfpgan/
 .claude/skills/*/.ledger.jsonl
 .claude/skills/*/.sidecar.json
 .claude/skills/.archive/
+
+# The pinned GSAP build is copied beside hand-written example pages
+# (python -m tools.gsap_runtime <folder>); it is installed from npm, not committed.
+ink-theater/examples/*/gsap.min.js

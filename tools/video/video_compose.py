@@ -311,6 +311,14 @@ class VideoCompose(BaseTool):
                 "type": "boolean",
                 "description": "HyperFrames render only: save representative quality-check snapshots.",
             },
+            "allow_remote_runtime": {
+                "type": "boolean",
+                "description": (
+                    "HyperFrames authored workspaces only: render although a page loads "
+                    "GSAP or three.js from a CDN while the pinned local build is staged. "
+                    "Needs network; by default the render stops and lists the tags to change."
+                ),
+            },
             "public_dir": {
                 "type": "string",
                 "description": (
@@ -351,7 +359,7 @@ class VideoCompose(BaseTool):
         "options", "proposal_packet", "script_path", "script_text",
         "narration_transcript_path", "playbook", "playbook_name", "scene_plan",
         "quality", "fps", "workspace_path", "public_dir", "strict",
-        "strict_check", "skip_contrast", "snapshots",
+        "strict_check", "skip_contrast", "snapshots", "allow_remote_runtime",
         "remotion_browser_executable", "remotion_concurrency",
     ]
     side_effects = ["writes video file to output_path"]
@@ -1998,6 +2006,8 @@ class VideoCompose(BaseTool):
             hf_inputs["strict_check"] = inputs["strict_check"]
         if "snapshots" in inputs:
             hf_inputs["snapshots"] = inputs["snapshots"]
+        if "allow_remote_runtime" in inputs:
+            hf_inputs["allow_remote_runtime"] = inputs["allow_remote_runtime"]
 
         render_result = HyperFramesCompose().execute(hf_inputs)
 
