@@ -98,7 +98,7 @@ Threshold: ~0.02 below `p05` of the source's complexity tier (see `eval.md`'s va
 
 ### Step 5: Document gaps
 
-Anything that didn't translate cleanly (volume ramps dropped, custom presentations approximated, fonts substituted) gets a `TRANSLATION_NOTES.md` written next to the HF output. See [`references/limitations.md`](references/limitations.md) for the format.
+Anything that didn't translate cleanly (volume ramps approximated, custom presentations approximated, fonts substituted) gets a `TRANSLATION_NOTES.md` written next to the HF output. See [`references/limitations.md`](references/limitations.md) for the format.
 
 ## What this skill explicitly does NOT do
 

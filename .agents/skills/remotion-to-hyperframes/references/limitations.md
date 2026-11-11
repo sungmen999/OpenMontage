@@ -31,10 +31,13 @@ Remotion accepts a function for `volume`:
 <Audio src={...} volume={(f) => interpolate(f, [0, 30], [0, 1])} />
 ```
 
-HF supports static `data-volume` only. Translation: bake the ramp into
-the audio file at translation time using `ffmpeg afade`, OR drop the
-ramp with a note. The dropped-ramp path produces audibly different
-output but visually-identical video, so SSIM passes — just flag it.
+`data-volume` is only the static level; HF has no attribute for a ramp.
+Translation: add a GSAP `volume` tween on the `<audio>` element to the
+composition timeline (see [media.md](media.md)). A ramp whose shape a
+tween cannot express is baked into the audio file with `ffmpeg afade`,
+or dropped with a note. A missing ramp gives audibly different output
+but visually-identical video, so SSIM passes — measure the audio level
+at the start, middle and end of the ramp.
 
 ### `<Loop>` with stateful children
 
@@ -120,10 +123,12 @@ a `TRANSLATION_NOTES.md` next to the output:
 
 The following Remotion patterns were translated with caveats:
 
-- `<Audio volume={(f) => ...}>` (line 15): volume ramp dropped — added
-  static `data-volume="0.5"`. To preserve the ramp, run
-  `ffmpeg -i music.wav -af "afade=t=in:st=0:d=1" music.faded.wav` and
-  swap the source file.
+- `<Audio volume={(f) => ...}>` (line 15): volume ramp translated as a
+  linear GSAP `volume` tween on the `<audio>` element, holding at
+  `data-volume="0.5"`. The original curve was not linear; to match it
+  exactly, run
+  `ffmpeg -i music.wav -af "afade=t=in:st=0:d=1" music.faded.wav`, swap
+  the source file and remove the tween.
 - `<HeavyChart>` (line 30): translated as inline HTML. The original
   React.lazy boundary was dropped — bundle size unchanged because HF
   serves a single HTML file.

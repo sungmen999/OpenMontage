@@ -44,9 +44,33 @@ didn't specify trim.
 <Audio src={staticFile("music.wav")} volume={(f) => interpolate(f, [0, 30], [0, 1])} />
 ```
 
-HF supports static `data-volume` only for now. Volume ramps need to be
-applied to the audio file at translation time (with ffmpeg `afade`) or the
-ramp is dropped with a translation note.
+`data-volume` sets the static level only, so a ramp becomes a GSAP
+`volume` tween on the `<audio>` element, added to the composition
+timeline:
+
+```html
+<audio
+  id="music"
+  data-start="0"
+  data-duration="6"
+  data-track-index="2"
+  data-volume="1"
+  src="assets/music.wav"
+></audio>
+```
+
+```js
+tl.fromTo("#music", { volume: 0 }, { volume: 1, duration: 1, ease: "none" }, 0);
+```
+
+`interpolate(f, [0, 30], [0, 1])` at 30 fps is one second and linear,
+hence `duration: 1` and `ease: "none"`. `data-volume` is the level the
+track holds outside the tween. Checked on HyperFrames CLI 0.9.33
+(2026-11-11): a tone with a fade in and a fade out written this way
+measured -47.6 dB, -30.1 dB and -52.9 dB at its start, middle and end.
+
+Bake the ramp into the file with ffmpeg `afade` only when its shape is
+not a tween, and say so in the translation notes.
 
 ### Trim / playbackRate
 
