@@ -94,6 +94,18 @@ def test_a_module_that_is_fixed_stops_being_reported(package, tmp_path):
     assert reg.discovery_errors == {}
 
 
+def test_a_module_level_type_alias_does_not_hide_the_modules_tools(package, tmp_path):
+    """On Python 3.10 `tuple[int, int]` passes inspect.isclass() and then makes
+    issubclass() raise, which dropped every tool defined beside such an alias."""
+    (tmp_path / "probe_tools" / "aliased.py").write_text(
+        "Size = tuple[int, int]\nNames = list[str]\n" + GOOD.format(name="aliased_probe")
+    )
+    reg = ToolRegistry()
+
+    assert "aliased_probe" in reg.discover(package)
+    assert "probe_tools.aliased" not in reg.discovery_errors
+
+
 def test_the_repo_itself_has_no_discovery_errors():
     """The guard that makes isolation safe: a tool module in THIS repo that
     stops importing fails here, loudly, instead of quietly shrinking the menu."""

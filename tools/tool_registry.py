@@ -10,7 +10,7 @@ import importlib
 import inspect
 import pkgutil
 from collections.abc import Iterable
-from types import ModuleType
+from types import GenericAlias, ModuleType
 from typing import Any, Optional
 
 from tools.base_tool import BaseTool, ToolStatus, ToolTier, ToolStability
@@ -132,6 +132,10 @@ class ToolRegistry:
         """Register all concrete BaseTool subclasses defined in a module."""
         registered: list[str] = []
         for _, cls in inspect.getmembers(module, inspect.isclass):
+            # On Python 3.10 a parameterized alias such as `tuple[int, int]`
+            # passes isclass() and then makes issubclass() raise.
+            if isinstance(cls, GenericAlias):
+                continue
             if cls is BaseTool or not issubclass(cls, BaseTool):
                 continue
             if cls.__module__ != module.__name__ or inspect.isabstract(cls):
