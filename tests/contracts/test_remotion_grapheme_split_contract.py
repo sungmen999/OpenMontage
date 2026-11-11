@@ -24,6 +24,14 @@ CASES = {
     "emoji": "Build Momentum 🚀",
     "thai": "ชาเขียว ที่ดีที่สุด",
     "zwj": "\U0001F469\u200d\U0001F469\u200d\U0001F467 ok",
+    # SARA AM (U+0E33) and Lao AM (U+0EB3) are letters by general category but
+    # extend the cluster before them, like a spacing mark.
+    "thai_am": "น้ำใจ กรุ๊ป",
+    "lao_am": "ນ້ຳ",
+    "skin_tone": "\U0001F44D\U0001F3FD ok",
+    "flags": "\U0001F1F9\U0001F1ED\U0001F1EF\U0001F1F5 go",
+    "keycap": "1\ufe0f\u20e3 2",
+    "tag_flag": "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F",
 }
 
 
@@ -71,10 +79,24 @@ def test_split_graphemes_keeps_emoji_and_thai_marks_whole(without_segmenter: boo
     assert parts["thai"][:5] == ["ช", "า", "เ", "ขี", "ย"]
     assert parts["thai"][7:9] == ["ที่", "ดี"]
     assert parts["zwj"][0] == "\U0001F469\u200d\U0001F469\u200d\U0001F467"
+    assert parts["thai_am"] == ["น้ำ", "ใ", "จ", " ", "ก", "รุ๊", "ป"]
+    assert parts["lao_am"] == ["ນ້ຳ"]
+    assert parts["skin_tone"][0] == "\U0001F44D\U0001F3FD"
+    assert parts["flags"][:2] == ["\U0001F1F9\U0001F1ED", "\U0001F1EF\U0001F1F5"]
+    assert parts["keycap"][0] == "1\ufe0f\u20e3"
+    assert parts["tag_flag"] == [CASES["tag_flag"]]
     for name, pieces in parts.items():
         for piece in pieces:
             assert not re.search(r"[\ud800-\udfff]", piece), (name, piece)
-            assert not re.match(r"[ัิ-ฺ็-๎]", piece), (name, piece)
+            # No piece starts with a Thai or Lao mark or AM vowel.
+            assert not re.match(r"[ัำิ-ฺ็-๎ັຳິ-ຼ່-໎]", piece), (name, piece)
+
+
+def test_fallback_split_agrees_with_intl_segmenter() -> None:
+    # Chrome, which renders every Remotion frame, has Intl.Segmenter. The
+    # fallback only runs where it is missing, so nothing else would show a
+    # drift between the two paths.
+    assert _split_with_node(without_segmenter=True) == _split_with_node(without_segmenter=False)
 
 
 def test_hero_title_splits_by_grapheme() -> None:
@@ -83,6 +105,23 @@ def test_hero_title_splits_by_grapheme() -> None:
     assert 'split("")' not in source
     assert "splitGraphemes(title)" in source
     assert "splitGraphemes(word)" in source
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "call"),
+    [
+        ("TitledVideo.tsx", "splitGraphemes(text)"),
+        ("components/ProductReveal.tsx", "splitGraphemes(productName)"),
+    ],
+)
+def test_per_letter_titles_split_by_grapheme(relative_path: str, call: str) -> None:
+    # Both render one inline-block span per piece. Stills rendered on
+    # 2026-11-11 with "น้ำใจ กรุ๊ป" and a ZWJ family emoji drew every mark on
+    # its consonant and the emoji as one glyph.
+    source = (COMPOSER_SRC / relative_path).read_text(encoding="utf-8")
+    assert "lib/graphemes" in source
+    assert call in source
+    assert ".map((char, i)" in source
 
 
 # `split("")` is fine where the pieces are not text glyphs (hex colour expansion).

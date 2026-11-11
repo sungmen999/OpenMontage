@@ -14,6 +14,13 @@ type GraphemeSegmenterCtor = new (
   options?: { granularity: "grapheme" },
 ) => GraphemeSegmenter;
 
+// Code points that extend the cluster before them. Besides combining marks
+// these are: Thai SARA AM and Lao AM (letters by general category, spacing
+// marks for segmentation), the zero-width joiner, emoji skin tones and the
+// tag characters that spell a subdivision flag.
+const EXTENDS_PREVIOUS = /^(?:\p{M}|\p{Emoji_Modifier}|[ำຳ‍\u{e0020}-\u{e007f}])$/u;
+const REGIONAL_INDICATOR = /^\p{Regional_Indicator}$/u;
+
 export function splitGraphemes(text: string): string[] {
   const Segmenter = (Intl as unknown as { Segmenter?: GraphemeSegmenterCtor })
     .Segmenter;
@@ -21,13 +28,19 @@ export function splitGraphemes(text: string): string[] {
     const segmenter = new Segmenter(undefined, { granularity: "grapheme" });
     return Array.from(segmenter.segment(text), (part) => part.segment);
   }
-  // No Intl.Segmenter: split by code point and keep combining marks (and
-  // emoji joiners/variation selectors) on the character they modify.
+  // No Intl.Segmenter: split by code point and keep on the previous piece
+  // whatever extends it. This covers the scripts and emoji the titles see
+  // (the contract test compares it with Intl.Segmenter); it is not UAX #29.
   const out: string[] = [];
   for (const codePoint of Array.from(text)) {
+    const previous = out[out.length - 1];
     const joinsPrevious =
-      /\p{M}/u.test(codePoint) || codePoint === "\u200d" || out[out.length - 1]?.endsWith("\u200d");
-    if (out.length > 0 && joinsPrevious) {
+      previous !== undefined &&
+      (EXTENDS_PREVIOUS.test(codePoint) ||
+        previous.endsWith("‍") ||
+        // A flag is two regional indicators: pair the second with the first.
+        (REGIONAL_INDICATOR.test(codePoint) && REGIONAL_INDICATOR.test(previous)));
+    if (joinsPrevious) {
       out[out.length - 1] += codePoint;
     } else {
       out.push(codePoint);
