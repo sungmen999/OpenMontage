@@ -44,20 +44,33 @@ proposal unless a `render_runtime_selection` decision explicitly changed it.
      When it locked `hyperframes`, copy the proposal's `delivery_promise` into
      `metadata` before rendering.
    - It draws each character from its `rig_plan` parts and plays the
-     `pose_library` poses at the `action_timeline` times. The art is built-in
-     line art chosen by part `kind` (torso, head, eye, pupil, mouth, limb,
-     tail, wing, brow, ear; any other kind is a small marker), placed at the
-     joint pivots, nested under `parent`, stacked by `layers`. It is the rig
-     acting, not finished character artwork: `asset_path` artwork, the scene
-     `background`, `camera`, `effects`, and an action's `emotion`, `target`
-     and `notes` are not drawn.
+     `pose_library` poses at the `action_timeline` times. A part with
+     `asset_path` is drawn as that artwork file, embedded in the page; a part
+     without one is built-in line art chosen by part `kind` (torso, head,
+     eye, pupil, mouth, limb, tail, wing, brow, ear; any other kind is a
+     small marker) at its joint pivot. Parts nest under `parent` and stack by
+     `layers`. A mouth shape shows the artwork in
+     `pose_library.mouth_shapes.<name>.asset_path`; the mouth part's own
+     `asset_path` is the `closed` shape. Not drawn: the scene `background`,
+     `camera`, `effects`, and an action's `emotion`, `target` and `notes`.
+   - It fails, with `artwork_problems` in the result, when an `asset_path`
+     cannot be drawn: the file is missing, the value is a URL, the file is
+     not a still PNG, JPEG, WebP, GIF or SVG, or an SVG loads something
+     outside itself. That is the assets-stage blocker reaching compose. Fix
+     the file or the rig plan and re-run; do not render around it.
    - Read `acting` in the result before you trust the render. It lists, per
      character, the parts drawn and the poses played, and what could not be
      played: `missing_poses` (an action whose pose, cycle and action name are
      all absent from the library), `unknown_parts` (a pose names a part the
      rig lacks), `clamped` (a rotation outside the joint range) and
-     `generic_parts` (a kind with no drawing). Fix the artifacts and re-run
-     until the lists that matter are empty, or report them.
+     `generic_parts` (a kind with no drawing and no artwork). Fix the
+     artifacts and re-run until the lists that matter are empty, or report
+     them. `artwork.drawn` lists every file drawn with the `box` it covers
+     in rig coordinates: a box far from the part's pivot means the file was
+     exported on another artboard, and `opaque: true` means the image has no
+     transparency and hides what is behind it.
+     `artwork.mouth_shapes_on_default` lists mouth shapes that have no
+     artwork and show the `closed` mouth instead.
    - The timing rules: an action plays its `pose` from `at_seconds`; with no
      `pose` it plays the action cycle, else the pose, named after the action.
      The move lasts the action's duration minus the pose's `hold_frames` (at

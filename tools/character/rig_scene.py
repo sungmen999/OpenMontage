@@ -5,10 +5,12 @@ a scene: `rig_plan` says which parts exist, where they pivot and how they
 stack; `pose_library` says what each pose does to those parts; and
 `action_timeline` says which pose each character takes and when.
 
-The shapes are built-in line art chosen by part `kind`. A rig differs from
-another only by its data, so a bird's wings and a mouse's tail need no code
-of their own. Everything here is deterministic: the tweens are computed in
-Python and the page only adds them to one paused, finite GSAP timeline.
+A part that names artwork (`asset_path`, read by `rig_artwork`) is drawn as
+that image, in rig coordinates. Every other part is built-in line art chosen
+by its `kind`. A rig differs from another only by its data, so a bird's wings
+and a mouse's tail need no code of their own. Everything here is
+deterministic: the tweens are computed in Python and the page only adds them
+to one paused, finite GSAP timeline.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from __future__ import annotations
 import html
 import json
 from typing import Any
+
+from tools.character.rig_artwork import Artwork
 
 INK = "#202632"
 
@@ -118,6 +122,26 @@ def mouth_shape_names(pose_entry: dict[str, Any] | None) -> list[str]:
 # -- shapes ------------------------------------------------------------------
 
 Box = tuple[float, float, float, float]
+_MOUTH_BOX = (-36.0, 2.0, 36.0, 48.0)  # the built-in mouth shapes, about the pivot
+
+
+def _coordinate(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _art_image(art: Artwork) -> str:
+    """The artwork as an image in rig coordinates, so the rig's pivots apply to it."""
+    left, top, right, bottom = art.frame
+    return (
+        f'<image class="art" x="{_coordinate(left)}" y="{_coordinate(top)}" '
+        f'width="{_coordinate(right - left)}" height="{_coordinate(bottom - top)}" '
+        f'href="{html.escape(art.href, quote=True)}" />'
+    )
+
+
+def _mouth_group(name: str, drawing: str) -> str:
+    hidden = "" if name == DEFAULT_MOUTH else ' style="opacity:0"'
+    return f'<g class="mouth-shape" data-shape="{html.escape(name, quote=True)}"{hidden}>{drawing}</g>'
 
 
 def _mouth_shape(name: str, x: float, y: float) -> str:
@@ -166,13 +190,8 @@ def _shape(
     if kind == "pupil":
         return f'<circle cx="{_n(x)}" cy="{_n(y)}" r="8" fill="{INK}" />', (x - 8, y - 8, x + 8, y + 8), True
     if kind == "mouth":
-        hidden = ' style="opacity:0"'
-        shapes = "".join(
-            f'<g class="mouth-shape" data-shape="{html.escape(name, quote=True)}"'
-            f"{'' if name == DEFAULT_MOUTH else hidden}>{_mouth_shape(name, x, y)}</g>"
-            for name in mouths
-        )
-        return shapes, (x - 36, y + 2, x + 36, y + 48), True
+        shapes = "".join(_mouth_group(name, _mouth_shape(name, x, y)) for name in mouths)
+        return shapes, (x + _MOUTH_BOX[0], y + _MOUTH_BOX[1], x + _MOUTH_BOX[2], y + _MOUTH_BOX[3]), True
     if kind == "limb" and hangs_low:  # a leg: straight down to a foot
         return (
             f'<path class="outline" d="M{_n(x)} {_n(y)} L{_n(x)} {_n(y + 82)}" fill="none" />'
@@ -235,12 +254,19 @@ def draw_character(
     fills: tuple[str, str],
     placement: str,
     mouths: list[str] | None = None,
+    artwork: dict[str, Artwork] | None = None,
+    mouth_artwork: dict[str, Artwork] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """SVG for one character built from its rig parts.
 
     Parts nest under their `parent`, so a pose that turns the head carries the
     eyes. Inside each parent the children are ordered by layer around the
     parent's own shape: lower layers behind it, higher ones in front.
+
+    ``artwork`` maps a part id to the image drawn in place of its built-in
+    shape. ``mouth_artwork`` maps a mouth-shape name to its image; a mouth
+    part's own artwork is its rest shape, and a shape with no artwork shows
+    the rest shape's rather than line art beside it.
 
     ``placement`` is the transform of the slot the figure stands in. It goes
     on an outer group, because GSAP animates the `.character` group itself.
@@ -300,6 +326,11 @@ def draw_character(
 
     box: list[float] = []
     generic: list[str] = []
+    part_art = artwork or {}
+    shape_art = mouth_artwork or {}
+    art_notes: list[dict[str, Any]] = []
+    on_default: list[dict[str, str]] = []
+    embedded = 0
 
     def grow(shape_box: Box) -> None:
         if not box:
@@ -308,6 +339,43 @@ def draw_character(
         box[0], box[1] = min(box[0], shape_box[0]), min(box[1], shape_box[1])
         box[2], box[3] = max(box[2], shape_box[2]), max(box[3], shape_box[3])
 
+    def embed(part_id: str, art: Artwork, shape: str | None = None, note: bool = True) -> str:
+        nonlocal embedded
+        embedded += len(art.href)
+        if art.box is not None:
+            grow(art.box)
+        if note:
+            art_notes.append(
+                {
+                    "character_id": cid,
+                    "part": part_id,
+                    **({"shape": shape} if shape else {}),
+                    "path": art.path,
+                    "format": art.format,
+                    "box": [_tidy(edge) for edge in art.box] if art.box is not None else None,
+                    "bytes": art.size_bytes,
+                    **({"opaque": True} if art.opaque else {}),
+                }
+            )
+        return _art_image(art)
+
+    def mouth_with_artwork(part_id: str, x: float, y: float) -> str:
+        rest = shape_art.get(DEFAULT_MOUTH) or part_art.get(part_id)
+        groups = []
+        for name in mouths or [DEFAULT_MOUTH]:
+            own = rest if name == DEFAULT_MOUTH else shape_art.get(name)
+            if own is not None:
+                from_part = name == DEFAULT_MOUTH and DEFAULT_MOUTH not in shape_art
+                drawing = embed(part_id, own, None if from_part else name)
+            elif rest is not None:
+                drawing = embed(part_id, rest, note=False)
+                on_default.append({"character_id": cid, "part": part_id, "shape": name})
+            else:
+                drawing = _mouth_shape(name, x, y)
+                grow((x + _MOUTH_BOX[0], y + _MOUTH_BOX[1], x + _MOUTH_BOX[2], y + _MOUTH_BOX[3]))
+            groups.append(_mouth_group(name, drawing))
+        return "".join(groups)
+
     def emit(part_id: str) -> str:
         part = by_id[part_id]
         kind = str(part.get("kind", ""))
@@ -315,10 +383,17 @@ def draw_character(
         parent = part.get("parent")
         ref_x, ref_y = pivot_of(parent) if parent in by_id and parent != part_id else (STAGE_CENTRE_X, 380.0)
         side = -1 if x < ref_x else 1
-        markup, shape_box, known = _shape(kind, x, y, side, y - ref_y >= 60, fills, mouths or [DEFAULT_MOUTH])
-        if not known:
-            generic.append(part_id)
-        grow(shape_box)
+        if kind == "mouth" and (part_id in part_art or shape_art):
+            markup = mouth_with_artwork(part_id, x, y)
+        elif part_id in part_art:
+            markup = embed(part_id, part_art[part_id])
+        else:
+            markup, shape_box, known = _shape(
+                kind, x, y, side, y - ref_y >= 60, fills, mouths or [DEFAULT_MOUTH]
+            )
+            if not known:
+                generic.append(part_id)
+            grow(shape_box)
         kids = sorted(children[part_id], key=rank)
         behind = "".join(emit(kid) for kid in kids if rank(kid) < rank(part_id))
         front = "".join(emit(kid) for kid in kids if not rank(kid) < rank(part_id))
@@ -361,6 +436,9 @@ def draw_character(
             if (limits := _limits((joints.get(part_id) or {}).get("rotation"))) is not None
         },
         "mouth_parts": [part_id for part_id, part in by_id.items() if part.get("kind") == "mouth"],
+        "artwork": art_notes,
+        "mouth_shapes_on_default": on_default,
+        "embedded_bytes": embedded,
     }
     return svg, info
 
@@ -439,8 +517,9 @@ def compile_acting(
     """Turn the timed actions into per-part tweens.
 
     Returns ``(acting, report)``. ``acting`` is what the page plays. ``report``
-    says what was played and what could not be: a pose the library lacks, a
-    part the rig lacks, a rotation outside its joint range.
+    says what was drawn and played and what could not be: a pose the library
+    lacks, a part the rig lacks, a rotation outside its joint range. It also
+    lists the artwork embedded for the figures in ``drawn``.
 
     Rules, all deterministic:
 
@@ -476,6 +555,7 @@ def compile_acting(
         "unknown_parts": [],
         "clamped": [],
         "generic_parts": [],
+        "artwork": {"drawn": [], "mouth_shapes_on_default": [], "embedded_bytes": 0},
     }
     acting: dict[str, Any] = {"duration": _tidy(duration), "characters": {}}
 
@@ -616,8 +696,12 @@ def compile_acting(
                 "actions": len(actions),
                 "poses_played": played,
                 "fitted": info["fitted"],
+                "artwork_parts": len({note["part"] for note in info["artwork"]}),
             }
         )
+        report["artwork"]["drawn"].extend(info["artwork"])
+        report["artwork"]["mouth_shapes_on_default"].extend(info["mouth_shapes_on_default"])
+        report["artwork"]["embedded_bytes"] += info["embedded_bytes"]
         report["tween_count"] += len(tweens) + len(mouths)
         report["generic_parts"].extend({"character_id": cid, "part": part_id} for part_id in info["generic_parts"])
     return acting, report

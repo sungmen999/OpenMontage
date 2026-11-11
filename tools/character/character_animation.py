@@ -26,6 +26,7 @@ from tools.base_tool import (
     ToolStability,
     ToolTier,
 )
+from tools.character.rig_artwork import Artwork, ArtworkError, load_artwork
 from tools.character.rig_scene import (
     BASE_RIG_PARTS,
     PLAY_RIG_JS,
@@ -57,6 +58,54 @@ def _character_color(index: int) -> tuple[str, str]:
         ("#f2c94c", "#fce6c9"),
     ]
     return palettes[index % len(palettes)]
+
+
+def _load_rig_artwork(
+    rig_characters: list[dict[str, Any]],
+    pose_entries: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Artwork]], dict[str, dict[str, Artwork]], list[dict[str, Any]]]:
+    """Read the artwork the rigs and their mouth shapes name.
+
+    Returns part artwork and mouth-shape artwork, each keyed by character
+    slug, and one entry for every file that cannot be drawn.
+    """
+    loaded: dict[str, Artwork] = {}
+    parts: dict[str, dict[str, Artwork]] = {}
+    shapes: dict[str, dict[str, Artwork]] = {}
+    problems: list[dict[str, Any]] = []
+
+    def read(asset_path: Any, where: dict[str, Any]) -> Artwork | None:
+        key = str(asset_path)
+        try:
+            if key not in loaded:
+                loaded[key] = load_artwork(asset_path)
+            return loaded[key]
+        except ArtworkError as exc:
+            problems.append({**where, "asset_path": key, "reason": str(exc)})
+            return None
+
+    for index, rig in enumerate(rig_characters):
+        cid = _slug(rig.get("character_id", f"character-{index + 1}"))
+        mouth_part: str | None = None
+        for part in rig.get("parts") or []:
+            if not isinstance(part, dict) or not part.get("id"):
+                continue
+            part_id = str(part["id"])
+            if part.get("kind") == "mouth" and mouth_part is None:
+                mouth_part = part_id
+            if part.get("asset_path"):
+                art = read(part["asset_path"], {"character_id": cid, "part": part_id})
+                if art is not None:
+                    parts.setdefault(cid, {})[part_id] = art
+        mouth_shapes = (pose_entries.get(cid) or {}).get("mouth_shapes")
+        if mouth_part is None or not isinstance(mouth_shapes, dict):
+            continue
+        for name, shape in mouth_shapes.items():
+            if isinstance(shape, dict) and shape.get("asset_path"):
+                art = read(shape["asset_path"], {"character_id": cid, "part": mouth_part, "shape": str(name)})
+                if art is not None:
+                    shapes.setdefault(cid, {})[str(name)] = art
+    return parts, shapes, problems
 
 
 def _normalize_style(style: Any) -> dict[str, Any]:
@@ -461,7 +510,7 @@ class ActionTimelineCompiler(BaseTool):
 
 class CharacterRigRenderer(BaseTool):
     name = "character_rig_renderer"
-    version = "0.2.0"
+    version = "0.3.0"
     tier = ToolTier.CORE
     capability = "character_animation"
     provider = "openmontage"
@@ -482,6 +531,7 @@ class CharacterRigRenderer(BaseTool):
         "write_browser_preview",
         "prepare_character_render_package",
         "draw_rig_parts",
+        "draw_part_artwork",
         "play_timed_poses",
     ]
     input_schema = {
@@ -501,12 +551,23 @@ class CharacterRigRenderer(BaseTool):
             "rig_plan": {
                 "type": "object",
                 "description": (
-                    "Each character is drawn from its parts: built-in line art by "
-                    "part kind (torso, head, eye, pupil, mouth, limb, tail, wing, "
-                    "brow, ear; any other kind is a small marker), placed at the "
-                    "joint pivot, nested under `parent` and stacked by `layers`. "
-                    "Joint rotation ranges clamp pose rotations. Without a rig plan "
-                    "every character id in the timeline gets the base rig."
+                    "Each character is drawn from its parts, nested under `parent` "
+                    "and stacked by `layers`. A part with `asset_path` is drawn as "
+                    "that image: a local PNG, JPEG, WebP, GIF or SVG still (a "
+                    "relative path resolves against the working directory), embedded "
+                    "in the page. Artwork is in rig coordinates, the space of the "
+                    "joint pivots: an SVG sits where its `viewBox` says, a raster "
+                    "image at the origin at one pixel per unit, so export every part "
+                    "of a character on the same artboard. A part without "
+                    "`asset_path` is built-in line art by kind (torso, head, eye, "
+                    "pupil, mouth, limb, tail, wing, brow, ear; any other kind is a "
+                    "small marker) at its joint pivot. A figure that leaves its slot "
+                    "is scaled into it, by its opaque pixels or SVG viewBox. The tool "
+                    "fails, listing `artwork_problems`, when an `asset_path` is "
+                    "missing, remote, not a still image, or an SVG that needs a file "
+                    "outside itself. Joint rotation ranges clamp pose rotations. "
+                    "Without a rig plan every character id in the timeline gets the "
+                    "base rig."
                 ),
             },
             "pose_library": {
@@ -517,8 +578,12 @@ class CharacterRigRenderer(BaseTool):
                     "rig parts, and a mouth part takes a shape name. Parts a pose "
                     "does not name return to rest. `hold_frames` sets how long a "
                     "pose holds inside its action and the step of an action cycle; "
-                    "`transition` is the ease when the action gives none. Without a "
-                    "pose library the figures only enter and breathe."
+                    "`transition` is the ease when the action gives none. A mouth "
+                    "shape may carry its own artwork as "
+                    "`mouth_shapes.<name>.asset_path` (same rules as a part's); the "
+                    "mouth part's own `asset_path` is the `closed` shape, and a shape "
+                    "with no artwork shows `closed` when that one has artwork. "
+                    "Without a pose library the figures only enter and breathe."
                 ),
             },
             "ambient_motion": {
@@ -561,13 +626,24 @@ class CharacterRigRenderer(BaseTool):
                 "type": "object",
                 "description": (
                     "What was drawn and played: per character the part count, "
-                    "action count and poses played, plus missing_poses, "
-                    "unknown_parts, clamped rotations and generic_parts."
+                    "action count, poses played and artwork_parts, plus "
+                    "missing_poses, unknown_parts, clamped rotations, generic_parts "
+                    "and `artwork`: the files drawn (path, format, the box each "
+                    "covers in rig coordinates, `opaque` when it has no "
+                    "transparency), mouth_shapes_on_default and embedded_bytes."
+                ),
+            },
+            "artwork_problems": {
+                "type": "array",
+                "description": (
+                    "Only on failure: each `asset_path` that cannot be drawn, with "
+                    "its character, part, mouth shape if any, and the reason."
                 ),
             },
         },
     }
     side_effects = [
+        "reads the artwork files named by asset_path",
         "writes a lightweight HTML preview to output_path",
         "writes a HyperFrames workspace/package",
         "optionally writes preview MP4",
@@ -577,8 +653,6 @@ class CharacterRigRenderer(BaseTool):
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         start = time.time()
         output_path = Path(inputs.get("output_path") or PROJECTS_DIR / "character-preview" / "preview.html")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        gsap_src = stage_gsap(output_path.parent)
         profile = inputs.get("profile")
         # Same resolution as the scaffold that mounts the composition.
         canvas_width, canvas_height, _ = HyperFramesCompose._resolve_dimensions(profile, 30)
@@ -601,6 +675,27 @@ class CharacterRigRenderer(BaseTool):
             for entry in pose_library.get("characters", [])
             if isinstance(entry, dict)
         }
+        # Artwork that cannot be drawn blocks the scene: a figure with a part
+        # missing, or quietly back in line art, is not the approved character.
+        part_artwork, mouth_artwork, artwork_problems = _load_rig_artwork(rig_characters, pose_entries)
+        if artwork_problems:
+            listed = "; ".join(
+                f"{problem['character_id']}/{problem['part']}"
+                f"{' shape ' + problem['shape'] if 'shape' in problem else ''}: "
+                f"{problem['asset_path']} ({problem['reason']})"
+                for problem in artwork_problems
+            )
+            return ToolResult(
+                success=False,
+                error=(
+                    f"character_rig_renderer cannot draw {len(artwork_problems)} artwork file(s): {listed}. "
+                    "Fix the file, or drop that asset_path to draw the built-in line art."
+                ),
+                data={"artwork_problems": artwork_problems},
+                duration_seconds=round(time.time() - start, 2),
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        gsap_src = stage_gsap(output_path.parent)
         count = len(rig_characters)
         # A figure is drawn about x=320 (at rest it spans about 175..455)
         # standing on y=560. Spread the figures evenly about the viewBox
@@ -620,6 +715,8 @@ class CharacterRigRenderer(BaseTool):
                 fills=_character_color(index),
                 placement=f"translate({x - 320 * scale:.1f} {560 * (1 - scale):.1f}) scale({scale:.3f})",
                 mouths=mouth_shape_names(pose_entries.get(cid)),
+                artwork=part_artwork.get(cid),
+                mouth_artwork=mouth_artwork.get(cid),
             )
             character_svgs.append(svg)
             drawn[cid] = info
@@ -696,7 +793,7 @@ class CharacterRigRenderer(BaseTool):
             "# DESIGN\n\n"
             "Generated for OpenMontage character animation.\n\n"
             "- Background: `#9bd7ff` sky and `#75c878` ground\n"
-            "- Foreground: `#202632` ink outlines\n"
+            "- Foreground: part artwork where the rig names it, `#202632` ink outlines elsewhere\n"
             "- Accent: saturated cartoon body colors\n"
             "- Motion: pose-library poses on rig parts at the action timeline's times, with holds\n",
             encoding="utf-8",
