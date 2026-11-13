@@ -219,9 +219,6 @@ pre {
 
 /* ---- Library ---- */
 
-.library .topbar {
-  justify-content: space-between;
-}
 .library > .notice {
   margin: 20px;
 }
@@ -661,5 +658,113 @@ ul.plain {
   .field {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
+  }
+}
+
+/* ---- Settings and files ---- */
+
+.pad {
+  padding: 20px;
+}
+.settings > .notice {
+  margin: 20px;
+}
+.settings-body {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+.settings .panel {
+  display: grid;
+  gap: 10px;
+}
+.settings h3,
+.files h3 {
+  margin: 0;
+}
+h4 {
+  margin: 12px 0 0;
+  font-size: 15px;
+}
+code {
+  font: 13px ui-monospace, Menlo, Consolas, monospace;
+}
+.caps {
+  display: grid;
+}
+.cap {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.cap summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cap-name {
+  flex: 1;
+  text-transform: capitalize;
+}
+.cap > p,
+.tool-setup {
+  margin: 8px 0 0 16px;
+  overflow-wrap: anywhere;
+}
+.key-section {
+  display: grid;
+  gap: 8px;
+}
+.key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 12px;
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.key-info {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.key-info label {
+  margin-right: 8px;
+}
+.key-edit {
+  display: flex;
+  gap: 8px;
+}
+.dialog.wide {
+  width: min(720px, 100%);
+}
+.files {
+  display: grid;
+  gap: 8px;
+}
+.file-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.file-rows li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+input[type="file"] {
+  padding: 6px;
+}
+@media (max-width: 700px) {
+  .key-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -34,6 +34,12 @@ React app (studio/web)  ──REST + SSE──►  FastAPI (studio/server.py = B
   edits inside the repo and read-only commands run without asking; any other
   command waits for Allow once / Always allow / Deny. The `auto-approve` toggle
   removes those prompts for a project, including for paid generation calls.
+- **Settings** (`/studio/settings`) shows the registry's capability menu and
+  writes keys to `.env`. Only variables named in `.env.example` or declared by
+  a tool can be written, and values are never sent back to the browser.
+- **Uploads** stream to `projects/<id>/sources/` (footage, references, images,
+  documents) or `music_library/`. Files attached while creating a production
+  are listed in the agent's first message.
 - **Conversation state** lives in `projects/<id>/.studio/` (transcript and the
   SDK session id), so a project's chat resumes after a server restart.
 
@@ -56,6 +62,6 @@ python -m pytest tests/studio   # agent channel tests (scripted fake client)
 
 1. Agent bridge, chat, decision and permission cards, gate actions, read-only
    artifact views for every pipeline. **(done)**
-2. Settings (provider menu, API keys) and uploads (footage, references, music).
+2. Settings (provider menu, API keys) and uploads (footage, references, music). **(done)**
 3. Card editors for brief / script / scene plan, stale tracking, per-scene re-run.
 4. Timeline editor for `edit_decisions`, with live preview on Remotion.

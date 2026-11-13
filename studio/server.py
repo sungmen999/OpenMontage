@@ -11,6 +11,13 @@ read-only board at ``/p/<id>``) is inherited unchanged. Studio adds:
     POST /api/studio/project/{id}/agent/resolve
     POST /api/studio/project/{id}/agent/interrupt
     POST /api/studio/project/{id}/agent/settings
+    POST /api/studio/project/{id}/start            (send the stored brief)
+    GET  /api/studio/project/{id}/files
+    POST /api/studio/project/{id}/files?name=      (raw body upload)
+    POST /api/studio/project/{id}/files/delete
+    GET  /api/studio/music    POST /api/studio/music?name=
+    GET  /api/studio/settings[?refresh=1]
+    POST /api/studio/settings/env
     GET  /studio[/...]                             (the React app)
 """
 
@@ -31,7 +38,9 @@ from fastapi.staticfiles import StaticFiles
 
 from backlot import server as backlot_server
 from backlot import state as backlot_state
+from studio import settings as studio_settings
 from studio.agent import STUDIO_DIRNAME, SessionBusy, SessionManager
+from studio.settings import SOURCES_DIRNAME, SettingsError
 
 WEB_DIST = Path(__file__).resolve().parent / "web" / "dist"
 
@@ -48,21 +57,30 @@ npm run build</pre>
 <p>The read-only board is still available at <a href="/">/</a>.</p>"""
 
 
-def _same_origin(request: Request) -> None:
+def _guard(request: Request, required_type: str) -> None:
     """Reject cross-site writes.
 
     These routes can make an agent run shell commands, and any web page can
-    POST to a loopback port. Requiring JSON forces a CORS preflight (which we
-    never answer), and Origin, when a browser sends it, must be this server.
+    POST to a loopback port. Requiring a non-form content type forces a CORS
+    preflight (which we never answer), and Origin, when a browser sends it,
+    must be this server.
     """
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if content_type != "application/json":
-        raise HTTPException(status_code=415, detail="application/json required")
+    if content_type != required_type:
+        raise HTTPException(status_code=415, detail=f"{required_type} required")
     origin = request.headers.get("origin")
     if origin is not None and urlsplit(origin).netloc != request.headers.get("host"):
         raise HTTPException(status_code=403, detail="cross-origin request refused")
     if request.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
         raise HTTPException(status_code=403, detail="cross-site request refused")
+
+
+def _same_origin(request: Request) -> None:
+    _guard(request, "application/json")
+
+
+def _same_origin_upload(request: Request) -> None:
+    _guard(request, "application/octet-stream")
 
 
 def _slug(title: str) -> str:
@@ -92,7 +110,9 @@ def _list_pipelines() -> list[dict]:
     return out
 
 
-def _first_message(title: str, pipeline: Optional[str], brief: str, project_id: str) -> str:
+def _first_message(
+    title: str, pipeline: Optional[str], brief: str, project_id: str, files: list[str] = (),
+) -> str:
     choice = (
         f"Pipeline (chosen by the user): {pipeline}"
         if pipeline
@@ -102,7 +122,37 @@ def _first_message(title: str, pipeline: Optional[str], brief: str, project_id: 
         f"New production from OpenMontage Studio.\n\n"
         f"Project id: {project_id}\nTitle: {title}\n{choice}\n\n"
         f"Brief:\n{brief}"
+        + (
+            f"\n\nThe user attached these files in projects/{project_id}/{SOURCES_DIRNAME}/:\n"
+            + "\n".join(f"- {name}" for name in files)
+            if files else ""
+        )
     )
+
+
+async def _receive_upload(request: Request, directory: Path, name: str) -> dict:
+    """Stream a raw request body into ``directory`` under a sanitized name."""
+    try:
+        filename = studio_settings.safe_filename(name)
+    except SettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    directory.mkdir(parents=True, exist_ok=True)
+    target = studio_settings.unique_path(directory, filename)
+    partial = target.with_name(f".{target.name}.part")
+    size = 0
+    try:
+        with open(partial, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > studio_settings.MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="file is too large")
+                f.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="the file is empty")
+        partial.replace(target)
+    finally:
+        partial.unlink(missing_ok=True)
+    return {"name": target.name, "size": size}
 
 
 def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
@@ -178,9 +228,94 @@ def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
             # The agent picks the pipeline and calls init_project itself.
             (projects_dir / project_id / STUDIO_DIRNAME).mkdir(parents=True)
 
-        session = session_for(project_id)
-        session.send(_first_message(title, pipeline, brief, project_id))
+        studio_dir = projects_dir / project_id / STUDIO_DIRNAME
+        studio_dir.mkdir(parents=True, exist_ok=True)
+        (studio_dir / "brief.json").write_text(
+            json.dumps({"title": title, "pipeline": pipeline, "brief": brief}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        # The UI defers the start when it still has attachments to upload.
+        if data.get("start", True) is not False:
+            session_for(project_id).send(_first_message(title, pipeline, brief, project_id))
         return {"project_id": project_id}
+
+    @app.post("/api/studio/project/{project_id}/start", dependencies=[Depends(_same_origin)])
+    async def start_project(project_id: str) -> dict:
+        session = session_for(project_id)
+        if session.status()["has_history"]:
+            raise HTTPException(status_code=409, detail="this production has already started")
+        try:
+            stored = json.loads((session.project_dir / STUDIO_DIRNAME / "brief.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise HTTPException(status_code=404, detail="no stored brief for this project")
+        files = [f["name"] for f in studio_settings.list_files(session.project_dir / SOURCES_DIRNAME)]
+        session.send(_first_message(stored["title"], stored.get("pipeline"), stored["brief"], project_id, files))
+        return {"ok": True}
+
+    # ---- files ----------------------------------------------------------
+
+    @app.get("/api/studio/project/{project_id}/files")
+    async def project_files(project_id: str) -> list:
+        directory = backlot_server._safe_project_dir(project_id) / SOURCES_DIRNAME
+        return await asyncio.to_thread(studio_settings.list_files, directory)
+
+    @app.post("/api/studio/project/{project_id}/files", dependencies=[Depends(_same_origin_upload)])
+    async def upload_project_file(project_id: str, name: str, request: Request) -> dict:
+        directory = backlot_server._safe_project_dir(project_id) / SOURCES_DIRNAME
+        return await _receive_upload(request, directory, name)
+
+    @app.post("/api/studio/project/{project_id}/files/delete", dependencies=[Depends(_same_origin)])
+    async def delete_project_file(project_id: str, request: Request) -> dict:
+        directory = backlot_server._safe_project_dir(project_id) / SOURCES_DIRNAME
+        try:
+            studio_settings.resolve_existing(directory, text_of(await body_of(request), "name")).unlink()
+        except SettingsError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        return {"ok": True}
+
+    @app.get("/api/studio/music")
+    async def music() -> list:
+        return await asyncio.to_thread(studio_settings.list_files, studio_settings.MUSIC_DIR)
+
+    @app.post("/api/studio/music", dependencies=[Depends(_same_origin_upload)])
+    async def upload_music(name: str, request: Request) -> dict:
+        if Path(name).suffix.lower() not in studio_settings.MEDIA_KINDS["audio"]:
+            raise HTTPException(status_code=400, detail="the music library only takes audio files")
+        return await _receive_upload(request, studio_settings.MUSIC_DIR, name)
+
+    # ---- settings -------------------------------------------------------
+
+    capability_cache: dict[str, Any] = {}
+    capability_lock = asyncio.Lock()
+
+    async def capabilities(refresh: bool = False) -> dict:
+        async with capability_lock:  # discovery imports every tool; never run it twice at once
+            if refresh or "data" not in capability_cache:
+                capability_cache["data"] = await asyncio.to_thread(studio_settings.compute_capabilities)
+            return capability_cache["data"]
+
+    async def settings_payload(refresh: bool = False) -> dict:
+        data = await capabilities(refresh)
+        keys = await asyncio.to_thread(studio_settings.list_keys, data["tool_env"])
+        return {**{k: v for k, v in data.items() if k != "tool_env"}, "keys": keys}
+
+    @app.get("/api/studio/settings")
+    async def get_settings(refresh: bool = False) -> dict:
+        return await settings_payload(refresh)
+
+    @app.post("/api/studio/settings/env", dependencies=[Depends(_same_origin)])
+    async def set_env(request: Request) -> dict:
+        data = await body_of(request)
+        name = text_of(data, "name")
+        value = data.get("value", "")
+        if not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="'value' must be a string")
+        allowed = {k["name"] for k in (await settings_payload())["keys"]}
+        try:
+            await asyncio.to_thread(studio_settings.set_key, name, value, allowed)
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return await settings_payload(refresh=True)
 
     # ---- agent channel --------------------------------------------------
 

@@ -204,3 +204,66 @@ export function pendingPrompts(events: AgentEvent[]) {
 }
 
 export const money = (n: number | null | undefined) => (n == null ? "—" : `$${n.toFixed(2)}`);
+
+// ---- Settings and files ----------------------------------------------------
+
+export interface ProviderTool {
+  name: string;
+  provider: string;
+  runtime: string;
+  best_for: string[];
+  install_instructions?: string;
+  env?: string[];
+}
+
+export interface Capability {
+  capability: string;
+  configured: number;
+  total: number;
+  available: ProviderTool[];
+  unavailable: ProviderTool[];
+}
+
+export interface EnvKey {
+  name: string;
+  section: string;
+  description: string;
+  example: string;
+  set: boolean;
+  source: "file" | "environment" | null;
+  tools: string[];
+}
+
+export interface Settings {
+  capabilities: Capability[];
+  composition_runtimes: Record<string, boolean>;
+  runtime_warnings: string[];
+  keys: EnvKey[];
+}
+
+export interface StoredFile {
+  name: string;
+  size: number;
+  mtime: number;
+  kind: "video" | "audio" | "image" | "document";
+}
+
+/** Raw-body upload. The octet-stream type is what the server's cross-site guard expects. */
+export const upload = (path: string, file: File) =>
+  fetch(`${path}?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  }).then((r) => parse<{ name: string; size: number }>(r));
+
+export function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArtifactPanel, Renders, Storyboard } from "./Artifact";
 import { Chat, PromptCard } from "./Chat";
+import { FilesDialog } from "./Files";
 import { Agent, BoardState, Stage, get, money, pendingPrompts, post, useAgent, useBoardState } from "./api";
 import { navigate } from "./main";
 
@@ -18,6 +19,7 @@ export function Studio({ id }: { id: string }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [autoApprove, setAutoApprove] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   useEffect(() => {
     get<{ auto_approve: boolean }>(`/api/studio/project/${id}/agent/status`).then(
@@ -66,6 +68,7 @@ export function Studio({ id }: { id: string }) {
         <label className="toggle" title="Skip permission prompts for this project">
           <input type="checkbox" checked={autoApprove} onChange={toggleAuto} /> auto-approve
         </label>
+        <button onClick={() => setFilesOpen(true)}>Files</button>
         <a className="link" href={`/p/${id}`} target="_blank" rel="noreferrer">
           Board
         </a>
@@ -104,6 +107,7 @@ export function Studio({ id }: { id: string }) {
           <Chat agent={agent} />
         </aside>
       )}
+      {filesOpen && <FilesDialog projectId={id} onClose={() => setFilesOpen(false)} />}
     </div>
   );
 }

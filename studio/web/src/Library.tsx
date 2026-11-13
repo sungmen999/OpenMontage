@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Pipeline, get, post, useProjects } from "./api";
+import { ACCEPT_SOURCES } from "./Files";
+import { Pipeline, fileSize, get, post, upload, useProjects } from "./api";
 import { navigate } from "./main";
 
 export function Library() {
@@ -10,6 +11,8 @@ export function Library() {
     <div className="library">
       <header className="topbar">
         <h1>OpenMontage Studio</h1>
+        <span className="spacer" />
+        <button onClick={() => navigate("/settings")}>Settings</button>
         <button className="primary" onClick={() => setCreating(true)}>
           New production
         </button>
@@ -63,8 +66,11 @@ function NewProject({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
   const [pipeline, setPipeline] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Once the project exists, a failed upload must not create a second one.
+  const [created, setCreated] = useState<string | null>(null);
 
   useEffect(() => {
     get<Pipeline[]>("/api/studio/pipelines").then(setPipelines, (e: Error) => setError(e.message));
@@ -74,14 +80,27 @@ function NewProject({ onClose }: { onClose: () => void }) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    setBusy("Starting…");
     setError(null);
     try {
-      const { project_id } = await post<{ project_id: string }>("/api/studio/projects", { title, brief, pipeline });
-      navigate(`/p/${project_id}`);
+      let id = created;
+      if (!id) {
+        const body = { title, brief, pipeline, start: false };
+        id = (await post<{ project_id: string }>("/api/studio/projects", body)).project_id;
+        setCreated(id);
+      }
+      const remaining = [...files];
+      while (remaining.length) {
+        setBusy(`Uploading ${remaining[0].name}…`);
+        await upload(`/api/studio/project/${id}/files`, remaining[0]);
+        remaining.shift();
+        setFiles([...remaining]);
+      }
+      await post(`/api/studio/project/${id}/start`);
+      navigate(`/p/${id}`);
     } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
+      setError(`${(err as Error).message}. Fix the problem and press Start again.`);
+      setBusy(null);
     }
   }
 
@@ -121,13 +140,28 @@ function NewProject({ onClose }: { onClose: () => void }) {
             {chosen.stability !== "production" && " This pipeline is beta: expect rough edges."}
           </p>
         )}
+        <label>
+          Source files (optional)
+          <input
+            type="file"
+            multiple
+            accept={ACCEPT_SOURCES}
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          />
+        </label>
+        {files.length > 0 && (
+          <p className="muted small">
+            {files.length} file{files.length > 1 ? "s" : ""} to upload,{" "}
+            {fileSize(files.reduce((sum, f) => sum + f.size, 0))}
+          </p>
+        )}
         {error && <p className="notice bad">{error}</p>}
         <div className="row end">
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={onClose} disabled={busy != null}>
             Cancel
           </button>
-          <button className="primary" disabled={busy}>
-            {busy ? "Starting…" : "Start"}
+          <button className="primary" disabled={busy != null}>
+            {busy ?? "Start"}
           </button>
         </div>
       </form>

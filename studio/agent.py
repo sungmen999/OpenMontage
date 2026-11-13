@@ -75,6 +75,13 @@ disk. AGENT_GUIDE.md applies in full; these points adapt it to the web:
   approves or requests changes with a button; it arrives as a message that
   starts with `[Studio gate]`.
 - Write every output under `projects/{project_id}/`.
+- Files the user uploads land in `projects/{project_id}/sources/` (footage,
+  references, images, documents) and `music_library/` (music). Check both when
+  a stage needs source media; never ask the user for a path they already
+  uploaded.
+- API keys are managed on Studio's Settings page. When a provider is one key
+  away from working, name the variable and point the user there instead of
+  asking them to edit `.env`. Never ask for a key in chat.
 - Reply in the language the user writes in.
 """.strip()
 

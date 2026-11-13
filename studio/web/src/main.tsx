@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Library } from "./Library";
+import { Settings } from "./Settings";
 import { Studio } from "./Studio";
 import "./styles.css";
 
@@ -21,6 +22,7 @@ function App() {
 
   const project = path.match(/^\/studio\/p\/([^/]+)\/?$/);
   if (project) return <Studio key={project[1]} id={decodeURIComponent(project[1])} />;
+  if (/^\/studio\/settings\/?$/.test(path)) return <Settings />;
   return <Library />;
 }
 
