@@ -116,3 +116,7 @@ pytest-of-*/
 
 # GFPGAN/facexlib download face-detection weights to ./gfpgan/weights at runtime
 gfpgan/
+
+# Studio web UI (build output + deps)
+studio/web/node_modules/
+studio/web/dist/

@@ -33,7 +33,7 @@ THUMB_CACHE_DIR = REPO_ROOT / ".backlot" / "thumbs"
 THUMB_WIDTHS = (320, 640, 960)
 
 # Paths inside a project whose changes are pure noise for the board.
-_IGNORE_PARTS = {"node_modules", ".git", "__pycache__", ".cache"}
+_IGNORE_PARTS = {"node_modules", ".git", "__pycache__", ".cache", ".studio"}
 
 SSE_HEARTBEAT_SECONDS = 15
 
