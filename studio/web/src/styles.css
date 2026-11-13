@@ -798,3 +798,180 @@ input[type="file"] {
 .scene > button {
   justify-self: start;
 }
+
+/* ---- Timeline ---- */
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+.timeline .panel-head {
+  margin: 0;
+}
+.notice {
+  background: var(--sunken);
+}
+.toggle input[type="range"] {
+  width: 110px;
+  padding: 0;
+}
+.monitor {
+  display: grid;
+  gap: 8px;
+}
+.monitor-frame {
+  margin: 0 auto;
+  width: 100%;
+  background: #000;
+  color: #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.monitor-frame video,
+.monitor-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.monitor-card {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 16px;
+  text-align: center;
+  font-size: 20px;
+}
+.tl-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+.tl-inner {
+  position: relative;
+  padding-bottom: 6px;
+}
+.tl-ruler {
+  position: relative;
+  height: 24px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+  touch-action: none;
+}
+.tl-ruler span {
+  position: absolute;
+  top: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--muted);
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.tl-track {
+  display: flex;
+  height: 40px;
+  border-bottom: 1px solid var(--line);
+}
+.tl-label {
+  flex: none;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.tl-lane {
+  position: relative;
+  flex: 1;
+}
+.tl-block {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  background: var(--surface);
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+  cursor: pointer;
+}
+.tl-block.movable {
+  cursor: grab;
+}
+.tl-block.whole {
+  border-style: dashed;
+  opacity: 0.8;
+}
+.tl-block.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  z-index: 1;
+}
+.tl-block span {
+  padding: 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.tl-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  background: var(--muted);
+  opacity: 0.35;
+}
+.tl-handle.left {
+  left: 0;
+}
+.tl-handle.right {
+  right: 0;
+}
+.tl-block.selected .tl-handle {
+  background: var(--accent);
+  opacity: 0.8;
+}
+.tl-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--bad);
+  pointer-events: none;
+  z-index: 3;
+}
+.tl-inspector {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.tl-inspector fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.player-frame {
+  width: 100%;
+  margin: 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}

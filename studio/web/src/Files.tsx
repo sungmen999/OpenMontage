@@ -98,6 +98,7 @@ export function FilesDialog({ projectId, onClose }: { projectId: string; onClose
           title="Music library"
           hint="Your own tracks, shared by every production. The agent offers them alongside generated music."
           url="/api/studio/music"
+          deleteUrl="/api/studio/music/delete"
           accept="audio/*"
         />
       </div>

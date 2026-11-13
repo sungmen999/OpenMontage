@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArtifactPanel, Renders, Storyboard } from "./Artifact";
 import { Chat, PromptCard } from "./Chat";
 import { FilesDialog } from "./Files";
+import { TimelineEditor } from "./Timeline";
 import {
   Agent, BoardState, EditState, Stage, get, money, pendingPrompts, post, saveArtifact, useAgent, useBoardState,
   useEditState,
@@ -185,6 +186,15 @@ function StageView({ state, stage, agent, edits, onEdited }: {
       )}
       {stage.status === "awaiting_human" && <Gate stage={stage} agent={agent} />}
 
+      {artifacts.includes("edit_decisions") && (
+        <TimelineEditor
+          key={`timeline:${edits?.artifacts.edit_decisions?.hash ?? ""}`}
+          projectId={id}
+          initial={state.artifacts.edit_decisions as Record<string, unknown>}
+          locked={busy ? "The timeline is locked while the agent is working." : null}
+          onSave={async (data) => onEdited(await saveArtifact(id, "edit_decisions", data, edits?.artifacts.edit_decisions?.hash))}
+        />
+      )}
       {showRenders && <Renders projectId={state.project_id} renders={renders} />}
       {showStoryboard && (
         <Storyboard

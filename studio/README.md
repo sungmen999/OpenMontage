@@ -47,6 +47,22 @@ React app (studio/web)  ──REST + SSE──►  FastAPI (studio/server.py = B
   regenerated: `studio/edits.py` logs the edit, later stages and affected
   scenes show as out of date, and Re-run / Regenerate scene ask the agent. The
   agent's next message names what was edited.
+- **Timeline.** A stage that produced `edit_decisions` shows a timeline:
+  drag blocks to move them, drag edges to trim, reorder, duplicate, and edit
+  any field of the selected item. `studio/timeline.py` tells the editor how
+  cut times are read, from the same map `video_compose` routes with:
+  Explainer-family Remotion and HyperFrames place cuts at their in/out times,
+  FFmpeg and the cinematic composition trim the source and play cuts back to
+  back. Saving goes through the same validated artifact route as any other
+  hand edit.
+- **Preview.** For Remotion's `Explainer` and `CinematicRenderer` the preview
+  is `@remotion/player` mounting the compositions from `remotion-composer/src`
+  with the draft as props, so it updates as you drag. It shows what the
+  canonical edit decisions describe; props a compose step adds later
+  (component scenes, captions) and files under `remotion-composer/public/` are
+  not in it. Other runtimes, atelier compositions and `TalkingHead` get a
+  source monitor: the cut under the playhead at the right source time, with
+  no effects or sound.
 - **Conversation state** lives in `projects/<id>/.studio/` (transcript and the
   SDK session id), so a project's chat resumes after a server restart.
 
@@ -62,7 +78,8 @@ this server, so another web page cannot post to it.
 ```bash
 python -m studio serve          # backend on :4760
 cd studio/web && npm run dev    # hot-reloading UI, proxies /api to :4760
-python -m pytest tests/studio   # agent channel tests (scripted fake client)
+python -m pytest tests/studio   # server tests (scripted fake agent client)
+cd studio/web && npm test       # timeline model tests
 ```
 
 ## Roadmap
@@ -71,4 +88,7 @@ python -m pytest tests/studio   # agent channel tests (scripted fake client)
    artifact views for every pipeline. **(done)**
 2. Settings (provider menu, API keys) and uploads (footage, references, music). **(done)**
 3. Artifact editors, stale tracking, per-stage and per-scene re-run. **(done)**
-4. Timeline editor for `edit_decisions`, with live preview on Remotion.
+4. Timeline editor for `edit_decisions`, with live preview on Remotion. **(done)**
+
+Not built: a rendered proxy preview for HyperFrames and FFmpeg effects,
+per-take selection in the asset manifest, and audio in the source monitor.

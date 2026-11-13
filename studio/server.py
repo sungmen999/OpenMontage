@@ -17,6 +17,7 @@ read-only board at ``/p/<id>``) is inherited unchanged. Studio adds:
     POST /api/studio/project/{id}/files/delete
     POST /api/studio/project/{id}/artifact/{name}  (save a hand edit)
     GET  /api/studio/project/{id}/edit-state       (editable names, hashes, stale)
+    GET  /api/studio/project/{id}/timeline         (cut-time mode, preview route, asset URLs)
     GET  /api/studio/music    POST /api/studio/music?name=
     GET  /api/studio/settings[?refresh=1]
     POST /api/studio/settings/env
@@ -42,6 +43,7 @@ from backlot import server as backlot_server
 from backlot import state as backlot_state
 from studio import edits as studio_edits
 from studio import settings as studio_settings
+from studio import timeline as studio_timeline
 from studio.agent import STUDIO_DIRNAME, SessionBusy, SessionManager
 from studio.settings import SOURCES_DIRNAME, SettingsError
 
@@ -272,6 +274,18 @@ def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
     async def get_edit_state(project_id: str) -> dict:
         return await asyncio.to_thread(edit_state, backlot_server._safe_project_dir(project_id))
 
+    @app.get("/api/studio/project/{project_id}/timeline")
+    async def get_timeline(project_id: str) -> dict:
+        project_dir = backlot_server._safe_project_dir(project_id)
+
+        def load() -> Optional[dict]:
+            return studio_timeline.describe(project_dir, backlot_state.load_board_state(project_dir))
+
+        info = await asyncio.to_thread(load)
+        if info is None:
+            raise HTTPException(status_code=404, detail="this project has no edit decisions yet")
+        return info
+
     @app.post("/api/studio/project/{project_id}/artifact/{name}", dependencies=[Depends(_same_origin)])
     async def save_artifact(project_id: str, name: str, request: Request) -> dict:
         session = session_for(project_id)
@@ -319,6 +333,16 @@ def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
         if Path(name).suffix.lower() not in studio_settings.MEDIA_KINDS["audio"]:
             raise HTTPException(status_code=400, detail="the music library only takes audio files")
         return await _receive_upload(request, studio_settings.MUSIC_DIR, name)
+
+    @app.post("/api/studio/music/delete", dependencies=[Depends(_same_origin)])
+    async def delete_music(request: Request) -> dict:
+        try:
+            studio_settings.resolve_existing(
+                studio_settings.MUSIC_DIR, text_of(await body_of(request), "name")
+            ).unlink()
+        except SettingsError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        return {"ok": True}
 
     # ---- settings -------------------------------------------------------
 

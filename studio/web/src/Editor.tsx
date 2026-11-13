@@ -89,7 +89,7 @@ function ListEditor({ items, onChange, label }: { items: Json[]; onChange: Chang
   );
 }
 
-function ObjectEditor({ record, onChange }: { record: Record<string, Json>; onChange: Change }) {
+export function ObjectEditor({ record, onChange }: { record: Record<string, Json>; onChange: Change }) {
   return (
     <dl className="fields">
       {Object.entries(record).map(([key, value]) => {
@@ -114,10 +114,11 @@ export function ArtifactEditor({ initial, onSave, onCancel }: {
   onSave: (data: Record<string, Json>) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, Json>>(initial);
+  const [base] = useState(initial); // the parent re-creates `initial` on every board refetch
+  const [draft, setDraft] = useState<Record<string, Json>>(base);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dirty = draft !== initial;
+  const dirty = draft !== base;
 
   async function save() {
     setBusy(true);

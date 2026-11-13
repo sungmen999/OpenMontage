@@ -147,7 +147,10 @@ def test_music_library_accepts_audio_only(projects_root, env_files, tmp_path):
         assert c.post("/api/studio/music", params={"name": "clip.mp4"}, content=b"x", headers=UPLOAD).status_code == 400
         assert c.post("/api/studio/music", params={"name": "calm.mp3"}, content=b"x", headers=UPLOAD).status_code == 200
         assert [f["name"] for f in c.get("/api/studio/music").json()] == ["calm.mp3"]
-    assert (env_files / "music_library" / "calm.mp3").read_bytes() == b"x"
+        assert (env_files / "music_library" / "calm.mp3").read_bytes() == b"x"
+        assert c.post("/api/studio/music/delete", json={"name": "../.env"}).status_code == 404
+        assert c.post("/api/studio/music/delete", json={"name": "calm.mp3"}).status_code == 200
+        assert c.get("/api/studio/music").json() == []
 
 
 def test_deferred_start_lists_attachments_in_first_message(projects_root, env_files, tmp_path):
