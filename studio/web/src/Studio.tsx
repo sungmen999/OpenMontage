@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { ArtifactPanel, Renders, Storyboard } from "./Artifact";
 import { Chat, PromptCard } from "./Chat";
 import { FilesDialog } from "./Files";
-import { Agent, BoardState, Stage, get, money, pendingPrompts, post, useAgent, useBoardState } from "./api";
+import {
+  Agent, BoardState, EditState, Stage, get, money, pendingPrompts, post, saveArtifact, useAgent, useBoardState,
+  useEditState,
+} from "./api";
 import { navigate } from "./main";
 
 const STORYBOARD_ARTIFACTS = ["scene_plan", "asset_manifest", "edit_decisions"];
@@ -16,6 +19,11 @@ function defaultStage(stages: Stage[]): string | null {
 export function Studio({ id }: { id: string }) {
   const { data: state, error } = useBoardState(id);
   const agent = useAgent(id);
+  const { data: liveEdits } = useEditState(id);
+  // A save returns fresher edit state than the next change-feed refetch.
+  const [savedEdits, setSavedEdits] = useState<EditState | null>(null);
+  useEffect(() => setSavedEdits(null), [liveEdits]);
+  const edits = savedEdits ?? liveEdits;
   const [picked, setPicked] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [autoApprove, setAutoApprove] = useState(false);
@@ -87,6 +95,7 @@ export function Studio({ id }: { id: string }) {
             <i />
             {s.name}
             {s.gated && <span className="muted" title="Needs your approval"> ◆</span>}
+            {edits?.stale.stages[s.name] && <span className="pill warn">out of date</span>}
           </button>
         ))}
       </nav>
@@ -99,7 +108,7 @@ export function Studio({ id }: { id: string }) {
             ))}
           </section>
         )}
-        {stage && <StageView state={state} stage={stage} agent={agent} />}
+        {stage && <StageView state={state} stage={stage} agent={agent} edits={edits} onEdited={setSavedEdits} />}
       </main>
 
       {chatOpen && (
@@ -112,7 +121,30 @@ export function Studio({ id }: { id: string }) {
   );
 }
 
-function StageView({ state, stage, agent }: { state: BoardState; stage: Stage; agent: Agent }) {
+function StageView({ state, stage, agent, edits, onEdited }: {
+  state: BoardState;
+  stage: Stage;
+  agent: Agent;
+  edits: EditState | null;
+  onEdited: (next: EditState) => void;
+}) {
+  const id = state.project_id;
+  const busy = agent.state !== "idle";
+  const staleStage = edits?.stale.stages[stage.name];
+  const assetsRan = state.stages.some((s) => s.produces.includes("asset_manifest") && s.status !== "pending");
+  const [rerunError, setRerunError] = useState<string | null>(null);
+
+  const rerunStage = () =>
+    agent
+      .send(`[Studio re-run] Stage "${stage.name}" is out of date because the user edited ${staleStage?.artifact} by hand. Re-run this stage from the artifacts on disk, then present it at its gate. Do not regenerate other stages.`)
+      .then(() => setRerunError(null), (e: Error) => setRerunError(e.message));
+
+  const regenerateScene = (sceneId: string, note: string) =>
+    agent.send(
+      `[Studio re-run] Regenerate the assets for scene "${sceneId}" only, from the current scene plan and script on disk. Update the asset manifest for that scene and leave every other scene untouched.` +
+        (note ? `\n\nUser direction for this take:\n${note}` : ""),
+    );
+
   const artifacts = stage.produces.filter((name) => state.artifacts[name] != null);
   const scenes = state.storyboard?.scenes ?? [];
   const showStoryboard = scenes.length > 0 && stage.produces.some((p) => STORYBOARD_ARTIFACTS.includes(p));
@@ -134,12 +166,45 @@ function StageView({ state, stage, agent }: { state: BoardState; stage: Stage; a
         {stage.stalled && <span className="pill warn">no activity for a while</span>}
       </div>
       {stage.error && <p className="notice bad">{stage.error}</p>}
+      {staleStage && (
+        <section className="gate">
+          <div>
+            <strong>This stage is out of date.</strong>
+            <p className="muted small">
+              You edited the {staleStage.artifact.replace(/_/g, " ")} after this stage ran. Nothing was regenerated.
+              Re-running may call paid providers; the agent announces the cost first.
+            </p>
+          </div>
+          {rerunError && <p className="notice bad">{rerunError}</p>}
+          <div className="row end">
+            <button className="primary" disabled={busy} onClick={rerunStage}>
+              Re-run {stage.name}
+            </button>
+          </div>
+        </section>
+      )}
       {stage.status === "awaiting_human" && <Gate stage={stage} agent={agent} />}
 
       {showRenders && <Renders projectId={state.project_id} renders={renders} />}
-      {showStoryboard && <Storyboard projectId={state.project_id} scenes={scenes} />}
+      {showStoryboard && (
+        <Storyboard
+          projectId={id}
+          scenes={scenes}
+          stale={edits?.stale.scenes ?? {}}
+          canRegenerate={assetsRan}
+          busy={busy}
+          onRegenerate={regenerateScene}
+        />
+      )}
       {artifacts.map((name) => (
-        <ArtifactPanel key={name} name={name} data={state.artifacts[name]} />
+        <ArtifactPanel
+          key={`${name}:${edits?.artifacts[name]?.hash ?? ""}`}
+          name={name}
+          data={state.artifacts[name]}
+          editable={edits?.artifacts[name]?.editable ?? false}
+          locked={busy ? "Wait for the agent to finish its turn" : null}
+          onSave={async (data) => onEdited(await saveArtifact(id, name, data, edits?.artifacts[name]?.hash))}
+        />
       ))}
       {!artifacts.length && !showStoryboard && !showRenders && (
         <p className="muted">

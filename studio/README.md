@@ -40,6 +40,13 @@ React app (studio/web)  ──REST + SSE──►  FastAPI (studio/server.py = B
 - **Uploads** stream to `projects/<id>/sources/` (footage, references, images,
   documents) or `music_library/`. Files attached while creating a production
   are listed in the agent's first message.
+- **Hand edits.** Every artifact that is not a record of what happened can be
+  edited in a structured form. A save is validated against the artifact's
+  JSON schema and written where the artifact already lives (through
+  `write_checkpoint`, so gates and `history/` still apply). Nothing is
+  regenerated: `studio/edits.py` logs the edit, later stages and affected
+  scenes show as out of date, and Re-run / Regenerate scene ask the agent. The
+  agent's next message names what was edited.
 - **Conversation state** lives in `projects/<id>/.studio/` (transcript and the
   SDK session id), so a project's chat resumes after a server restart.
 
@@ -63,5 +70,5 @@ python -m pytest tests/studio   # agent channel tests (scripted fake client)
 1. Agent bridge, chat, decision and permission cards, gate actions, read-only
    artifact views for every pipeline. **(done)**
 2. Settings (provider menu, API keys) and uploads (footage, references, music). **(done)**
-3. Card editors for brief / script / scene plan, stale tracking, per-scene re-run.
+3. Artifact editors, stale tracking, per-stage and per-scene re-run. **(done)**
 4. Timeline editor for `edit_decisions`, with live preview on Remotion.

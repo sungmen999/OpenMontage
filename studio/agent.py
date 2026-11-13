@@ -75,6 +75,10 @@ disk. AGENT_GUIDE.md applies in full; these points adapt it to the web:
   approves or requests changes with a button; it arrives as a message that
   starts with `[Studio gate]`.
 - Write every output under `projects/{project_id}/`.
+- The user can edit artifacts by hand in Studio and ask for a stage or a single
+  scene to be regenerated. Such requests start with `[Studio re-run]`: redo
+  exactly what is named from the artifacts on disk, announce tool, provider,
+  model and cost before any paid call, and leave everything else untouched.
 - Files the user uploads land in `projects/{project_id}/sources/` (footage,
   references, images, documents) and `music_library/` (music). Check both when
   a stage needs source media; never ask the user for a path they already
@@ -118,6 +122,7 @@ class AgentSession:
         self.auto_approve = False
         self.always_allowed: set[str] = set()
         self.sdk_session_id: Optional[str] = None
+        self.last_send_ts = 0.0  # hand edits newer than this are news to the agent
 
         self._client_factory = client_factory or _default_client_factory
         self._client: Any = None
@@ -140,6 +145,7 @@ class AgentSession:
             data = json.loads((self._dir / SESSION_FILE).read_text(encoding="utf-8"))
             self.sdk_session_id = data.get("session_id")
             self.auto_approve = bool(data.get("auto_approve", False))
+            self.last_send_ts = float(data.get("last_send_ts") or 0.0)
         path = self._dir / TRANSCRIPT_FILE
         if not path.is_file():
             return
@@ -167,7 +173,11 @@ class AgentSession:
         with suppress(OSError):
             self._dir.mkdir(parents=True, exist_ok=True)
             (self._dir / SESSION_FILE).write_text(
-                json.dumps({"session_id": self.sdk_session_id, "auto_approve": self.auto_approve}),
+                json.dumps({
+                    "session_id": self.sdk_session_id,
+                    "auto_approve": self.auto_approve,
+                    "last_send_ts": self.last_send_ts,
+                }),
                 encoding="utf-8",
             )
 
@@ -219,6 +229,8 @@ class AgentSession:
         if self.state != "idle":
             raise SessionBusy("the agent is still working on the previous message")
         self._emit({"type": "user", "text": text})
+        self.last_send_ts = time.time()
+        self._save_meta()
         self._set_state("running")
         self._inbox.put_nowait(text)
         if self._worker is None or self._worker.done():

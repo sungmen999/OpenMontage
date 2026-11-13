@@ -267,3 +267,22 @@ export function fileSize(bytes: number) {
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
+
+// ---- Hand edits and staleness ----------------------------------------------
+
+export interface StaleInfo {
+  artifact: string;
+  edited_at: number;
+  last_cost_usd?: number;
+}
+
+export interface EditState {
+  artifacts: Record<string, { hash: string; editable: boolean }>;
+  stale: { stages: Record<string, StaleInfo>; scenes: Record<string, StaleInfo> };
+}
+
+export const useEditState = (id: string) =>
+  useLiveResource<EditState>(`/api/studio/project/${id}/edit-state`, `/api/project/${id}/events`);
+
+export const saveArtifact = (id: string, name: string, data: unknown, base: string | undefined) =>
+  post<EditState>(`/api/studio/project/${id}/artifact/${name}`, { data, base });

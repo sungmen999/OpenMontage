@@ -15,6 +15,8 @@ read-only board at ``/p/<id>``) is inherited unchanged. Studio adds:
     GET  /api/studio/project/{id}/files
     POST /api/studio/project/{id}/files?name=      (raw body upload)
     POST /api/studio/project/{id}/files/delete
+    POST /api/studio/project/{id}/artifact/{name}  (save a hand edit)
+    GET  /api/studio/project/{id}/edit-state       (editable names, hashes, stale)
     GET  /api/studio/music    POST /api/studio/music?name=
     GET  /api/studio/settings[?refresh=1]
     POST /api/studio/settings/env
@@ -38,6 +40,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backlot import server as backlot_server
 from backlot import state as backlot_state
+from studio import edits as studio_edits
 from studio import settings as studio_settings
 from studio.agent import STUDIO_DIRNAME, SessionBusy, SessionManager
 from studio.settings import SOURCES_DIRNAME, SettingsError
@@ -252,6 +255,40 @@ def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
         session.send(_first_message(stored["title"], stored.get("pipeline"), stored["brief"], project_id, files))
         return {"ok": True}
 
+    # ---- hand edits -----------------------------------------------------
+
+    def edit_state(project_dir: Path) -> dict:
+        state = backlot_state.load_board_state(project_dir)
+        editable = studio_edits.editable_artifacts()
+        return {
+            "artifacts": {
+                name: {"hash": studio_edits.fingerprint(data), "editable": name in editable}
+                for name, data in (state.get("artifacts") or {}).items()
+            },
+            "stale": studio_edits.stale(project_dir, state),
+        }
+
+    @app.get("/api/studio/project/{project_id}/edit-state")
+    async def get_edit_state(project_id: str) -> dict:
+        return await asyncio.to_thread(edit_state, backlot_server._safe_project_dir(project_id))
+
+    @app.post("/api/studio/project/{project_id}/artifact/{name}", dependencies=[Depends(_same_origin)])
+    async def save_artifact(project_id: str, name: str, request: Request) -> dict:
+        session = session_for(project_id)
+        if session.state != "idle":
+            # The agent may be rewriting the same files mid-turn.
+            raise HTTPException(status_code=409, detail="wait for the agent to finish its turn before editing")
+        body = await body_of(request)
+        base = body.get("base")
+        try:
+            record = await asyncio.to_thread(
+                studio_edits.save, session.project_dir, name, body.get("data"),
+                base if isinstance(base, str) else None,
+            )
+        except studio_edits.EditError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        return {"edit": record, **await asyncio.to_thread(edit_state, session.project_dir)}
+
     # ---- files ----------------------------------------------------------
 
     @app.get("/api/studio/project/{project_id}/files")
@@ -354,8 +391,10 @@ def create_app(manager: Optional[SessionManager] = None) -> FastAPI:
     @app.post("/api/studio/project/{project_id}/agent/send", dependencies=[Depends(_same_origin)])
     async def agent_send(project_id: str, request: Request) -> dict:
         text = text_of(await body_of(request), "text")
+        session = session_for(project_id)
+        note = await asyncio.to_thread(studio_edits.agent_note, session.project_dir, session.last_send_ts)
         try:
-            session_for(project_id).send(text)
+            session.send(f"{text}\n\n{note}" if note else text)
         except SessionBusy as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return {"ok": True}

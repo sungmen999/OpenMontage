@@ -768,3 +768,33 @@ input[type="file"] {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Editor ---- */
+
+.panel-head {
+  margin-bottom: 12px;
+}
+.panel-head h3 {
+  margin: 0;
+}
+.editor {
+  display: grid;
+  gap: 12px;
+}
+.editor input[type="checkbox"] {
+  width: auto;
+}
+.editor-bar {
+  position: sticky;
+  bottom: -20px;
+  background: var(--surface);
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.regen {
+  display: grid;
+  gap: 6px;
+}
+.scene > button {
+  justify-self: start;
+}

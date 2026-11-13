@@ -1,5 +1,6 @@
-import { ReactNode } from "react";
-import { Scene } from "./api";
+import { ReactNode, useState } from "react";
+import { ArtifactEditor } from "./Editor";
+import { Scene, StaleInfo, money } from "./api";
 
 const TITLE_KEYS = ["label", "title", "name", "subject", "id", "scene_id", "category"];
 
@@ -79,16 +80,86 @@ function Fields({ record, skip, depth }: { record: Record<string, unknown>; skip
   );
 }
 
-export function ArtifactPanel({ name, data }: { name: string; data: unknown }) {
+export function ArtifactPanel({ name, data, editable, locked, onSave }: {
+  name: string;
+  data: unknown;
+  editable: boolean;
+  /** Why editing is unavailable right now, if it is. */
+  locked: string | null;
+  onSave: (data: unknown) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
   return (
     <section className="panel">
-      <h3>{humanize(name)}</h3>
-      <Value value={data} depth={0} />
+      <div className="row panel-head">
+        <h3>{humanize(name)}</h3>
+        <span className="spacer" />
+        {editable && !editing && (
+          <button disabled={locked != null} title={locked ?? undefined} onClick={() => setEditing(true)}>
+            Edit
+          </button>
+        )}
+        {!editable && <span className="muted small">read-only record</span>}
+      </div>
+      {editing ? (
+        <ArtifactEditor
+          initial={data as Record<string, unknown>}
+          onCancel={() => setEditing(false)}
+          onSave={async (next) => {
+            await onSave(next);
+            setEditing(false);
+          }}
+        />
+      ) : (
+        <Value value={data} depth={0} />
+      )}
     </section>
   );
 }
 
-export function Storyboard({ projectId, scenes }: { projectId: string; scenes: Scene[] }) {
+function RegenerateScene({ scene, stale, disabled, onRegenerate }: {
+  scene: Scene;
+  stale: StaleInfo | undefined;
+  disabled: boolean;
+  onRegenerate: (sceneId: string, note: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  if (!open) {
+    return (
+      <button className={stale ? "primary" : ""} disabled={disabled} onClick={() => setOpen(true)}>
+        Regenerate scene
+      </button>
+    );
+  }
+  return (
+    <div className="regen">
+      <textarea rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Direction for the new take (optional)" />
+      {stale?.last_cost_usd ? <p className="muted small">This scene cost {money(stale.last_cost_usd)} last time.</p> : null}
+      {error && <p className="notice bad">{error}</p>}
+      <div className="row end">
+        <button onClick={() => setOpen(false)}>Cancel</button>
+        <button
+          className="primary"
+          disabled={disabled}
+          onClick={() => onRegenerate(scene.id, note.trim()).then(() => setOpen(false), (e: Error) => setError(e.message))}
+        >
+          Ask the agent
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function Storyboard({ projectId, scenes, stale, canRegenerate, busy, onRegenerate }: {
+  projectId: string;
+  scenes: Scene[];
+  stale: Record<string, StaleInfo>;
+  canRegenerate: boolean;
+  busy: boolean;
+  onRegenerate: (sceneId: string, note: string) => Promise<void>;
+}) {
   return (
     <section className="panel">
       <h3>Storyboard</h3>
@@ -110,6 +181,12 @@ export function Storyboard({ projectId, scenes }: { projectId: string; scenes: S
             </div>
             {scene.description && <p className="small">{scene.description}</p>}
             {scene.narration && <p className="small narration">{scene.narration}</p>}
+            {stale[scene.id] && (
+              <span className="pill warn">out of date: {humanize(stale[scene.id].artifact)} was edited</span>
+            )}
+            {canRegenerate && (
+              <RegenerateScene scene={scene} stale={stale[scene.id]} disabled={busy} onRegenerate={onRegenerate} />
+            )}
           </article>
         ))}
       </div>
